@@ -35,8 +35,6 @@ window.ORACLE_CONFIG = {
 };
 ```
 
-`config.local.js` 已被 `.gitignore` 忽略，请不要把真实 API Key 提交到公开仓库。
-
 ## 文件结构
 
 ```text
