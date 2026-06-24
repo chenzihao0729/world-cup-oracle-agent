@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>天机赛局 World Cup Oracle Agent</title>
+    <link rel="icon" href="icon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main id="top">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">大数据 · 智能卦 · 世界杯</p>
+          <h1>以&nbsp;&nbsp;六爻起局<br />观&nbsp;&nbsp;赛势流转<br />推演世界杯胜平负</h1>
+          <p class="lede">
+            赛程、球场、开赛时间、时区、天气、球队实力、近期状态、历史表现、盘口波动与冷门指数共同入模，推演结果由算法实时生成，赛后回填验证。
+          </p>
+          <a class="primary-action" href="#today">推演今日比赛</a>
+        </div>
+        <div class="oracle-wheel" aria-hidden="true">
+          <div class="wheel-ring ring-a"></div>
+          <div class="wheel-ring ring-b"></div>
+          <div class="wheel-center">阴阳</div>
+          <span class="glyph g1">乾</span>
+          <span class="glyph g2">坤</span>
+          <span class="glyph g3">离</span>
+          <span class="glyph g4">坎</span>
+        </div>
+      </section>
+
+      <section id="today" class="quick-section">
+        <div class="section-kicker">Quick Entry</div>
+        <div class="section-head">
+          <h2>今日可推演</h2>
+          <div class="toolbar-actions">
+            <button class="ghost-button" id="refreshDataButton" type="button">刷新实时因子</button>
+          </div>
+        </div>
+        <p class="beijing-date-line" id="beijingDateLine"></p>
+        <p class="source-note" id="sourceNote"></p>
+        <div class="match-strip" id="matchStrip"></div>
+      </section>
+
+      <section id="analysis" class="workbench">
+        <aside class="match-panel">
+          <div class="section-kicker">Select Match</div>
+          <h2>选择推演场次</h2>
+          <div class="match-list" id="matchList"></div>
+        </aside>
+
+        <article class="analysis-panel">
+          <div class="match-meta" id="matchMeta"></div>
+          <div class="title-row">
+            <h2 id="matchTitle"></h2>
+            <div class="confidence" id="confidenceBadge"></div>
+          </div>
+
+          <div class="prediction-board">
+            <div>
+              <span>胜平负</span>
+              <strong id="wdlPick"></strong>
+            </div>
+            <div>
+              <span>候选比分</span>
+              <strong id="scorePick"></strong>
+            </div>
+            <div>
+              <span>半全场</span>
+              <strong id="halfFullPick"></strong>
+            </div>
+            <div>
+              <span>实时因子</span>
+              <strong id="livePick"></strong>
+            </div>
+          </div>
+
+          <div class="hexagram-row">
+            <div class="hex-card">
+              <span>本卦</span>
+              <h3 id="mainHexagram"></h3>
+              <div class="yao-stack" id="mainYao"></div>
+            </div>
+            <div class="change-badge">变</div>
+            <div class="hex-card">
+              <span>变卦</span>
+              <h3 id="changedHexagram"></h3>
+              <div class="yao-stack" id="changedYao"></div>
+            </div>
+          </div>
+
+          <div class="tabs" role="tablist" aria-label="推演维度">
+            <button class="tab is-active" type="button" data-tab="data">数据面</button>
+            <button class="tab" type="button" data-tab="form">状态面</button>
+            <button class="tab" type="button" data-tab="oracle">六爻面</button>
+            <button class="tab" type="button" data-tab="process">推演过程</button>
+          </div>
+
+          <div class="tab-body" id="tabBody"></div>
+        </article>
+      </section>
+
+      <section id="records" class="records-section">
+        <div class="section-kicker">Result Log</div>
+        <div class="section-head">
+          <h2>结果记录</h2>
+          <div class="toolbar-actions">
+            <button class="ghost-button" id="exportRecords" type="button">导出记录</button>
+            <button class="ghost-button" id="importRecords" type="button">导入记录</button>
+            <button class="ghost-button" id="clearRecords" type="button">清空记录</button>
+          </div>
+        </div>
+        <input id="recordsFileInput" type="file" accept="application/json,.json" hidden />
+        <div class="records-grid" id="recordsGrid"></div>
+      </section>
+    </main>
+
+    <div class="oracle-modal" id="oracleModal" aria-hidden="true">
+      <div class="oracle-dialog" role="dialog" aria-modal="true" aria-labelledby="oracleModalTitle">
+        <div class="oracle-dialog-head">
+          <div>
+            <span class="section-kicker">Live Deduction</span>
+            <h2 id="oracleModalTitle">实时推演</h2>
+          </div>
+          <button class="modal-close" id="closeOracleModal" type="button" aria-label="关闭">×</button>
+        </div>
+        <div class="modal-match-meta" id="modalMatchMeta"></div>
+        <div class="modal-progress">
+          <span id="modalProgressBar"></span>
+        </div>
+        <div class="modal-steps" id="modalSteps"></div>
+        <div class="modal-result" id="modalResult"></div>
+      </div>
+    </div>
+
+    <script src="config.local.js"></script>
+    <script src="app.js?v=20260624-typewriter-faster"></script>
+  </body>
+</html>
