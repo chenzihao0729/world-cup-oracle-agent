@@ -437,13 +437,21 @@ h1 {
 }
 
 .match-panel {
-  align-self: start;
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+}
+
+.match-panel h2 {
+  margin-bottom: 22px;
 }
 
 .match-list {
   display: grid;
+  align-content: start;
+  flex: 1 1 auto;
   gap: 10px;
-  max-height: min(72vh, 760px);
+  max-height: none;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1274,6 +1282,11 @@ h1 {
     grid-template-columns: 1fr;
   }
 
+  .match-panel {
+    display: block;
+    align-self: auto;
+  }
+
   .hero {
     min-height: auto;
     gap: 22px;
@@ -1307,6 +1320,10 @@ h1 {
 
   .match-list {
     max-height: min(58vh, 560px);
+  }
+
+  .match-panel h2 {
+    margin-bottom: 18px;
   }
 
   .title-row .team-name {
