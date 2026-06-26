@@ -1660,6 +1660,56 @@ function evaluatePrediction(match, revealed) {
   return revealed?.wdl === actualWdl(match) ? "命中" : "失准";
 }
 
+function halfFullRecordFields(match, revealed = null) {
+  const score = matchScore(match);
+  const actual = actualHalfFull(match);
+  const halfScore = actualHalfScoreText(match);
+  const status = revealed ? evaluateHalfFull(match, revealed) : "";
+  if (!actual && !halfScore) return {};
+  return {
+    halfScore,
+    halfFullActual: actual,
+    halfFullPredicted: halfFullBase(revealed?.halfFull),
+    halfFullStatus: status,
+    halfFullSource: score?.halfFullSource || "",
+    halfFullFetchedAt: score?.halfFullFetchedAt || ""
+  };
+}
+
+function completedRecordPayload(match, revealed, savedAt = new Date().toLocaleString("zh-CN", { hour12: false })) {
+  const status = evaluatePrediction(match, revealed);
+  const halfFullStatus = evaluateHalfFull(match, revealed);
+  const halfFullActual = actualHalfFull(match);
+  const halfFullResult = halfFullActual ? `；半全场 ${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}` : "";
+  const result = `${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}`;
+  return {
+    id: `auto-${match.id}`,
+    match: matchTitle(match),
+    result,
+    status: halfFullStatus ? `${status}｜半全场${halfFullStatus}` : status,
+    trend: `赛前输出：${predictionFullResultText(match, revealed)}；真实赛果：${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}。`,
+    conclusion: reviewConclusion(match, revealed, status),
+    savedAt,
+    ...halfFullRecordFields(match, revealed)
+  };
+}
+
+function recordNeedsPayloadUpdate(record, payload) {
+  return [
+    "match",
+    "result",
+    "status",
+    "trend",
+    "conclusion",
+    "halfScore",
+    "halfFullActual",
+    "halfFullPredicted",
+    "halfFullStatus",
+    "halfFullSource",
+    "halfFullFetchedAt"
+  ].some((key) => (record[key] || "") !== (payload[key] || ""));
+}
+
 function reviewConclusion(match, revealed, status) {
   const scoreText = actualScoreText(match);
   const actual = `${actualResultLabel(match)} · ${scoreText}`;
@@ -1761,34 +1811,20 @@ function syncCompletedVerifications() {
 
     const recordId = `auto-${match.id}`;
     const status = evaluatePrediction(match, revealed);
-    const halfFullStatus = evaluateHalfFull(match, revealed);
     if (applyCalibrationFromResult(match, revealed, status)) learned = true;
-    const halfFullActual = actualHalfFull(match);
-    const halfFullResult = halfFullActual ? `；半全场 ${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}` : "";
-    const result = `${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}`;
-    const statusText = halfFullStatus ? `${status}｜半全场${halfFullStatus}` : status;
-    const trend = `赛前输出：${predictionFullResultText(match, revealed)}；真实赛果：${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}。`;
-    const conclusion = reviewConclusion(match, revealed, status);
-    const savedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+    const payload = completedRecordPayload(match, revealed);
     const existing = state.records.find((record) => record.id === recordId);
 
     if (existing) {
-      if (existing.result !== result || existing.status !== statusText || existing.trend !== trend || existing.conclusion !== conclusion) {
-        Object.assign(existing, { result, status: statusText, trend, conclusion, savedAt });
+      const next = { ...payload, savedAt: existing.savedAt || payload.savedAt };
+      if (recordNeedsPayloadUpdate(existing, next)) {
+        Object.assign(existing, next);
         changed = true;
       }
       return;
     }
 
-    state.records.unshift({
-      id: recordId,
-      match: `${match.home.name} vs ${match.away.name}`,
-      result,
-      status: statusText,
-      trend,
-      conclusion,
-      savedAt
-    });
+    state.records.unshift(payload);
     changed = true;
   });
 
@@ -1807,7 +1843,13 @@ function refreshRecordSnapshots() {
       next.result !== record.result ||
       next.trend !== record.trend ||
       next.conclusion !== record.conclusion ||
-      next.match !== record.match
+      next.match !== record.match ||
+      next.halfScore !== record.halfScore ||
+      next.halfFullActual !== record.halfFullActual ||
+      next.halfFullPredicted !== record.halfFullPredicted ||
+      next.halfFullStatus !== record.halfFullStatus ||
+      next.halfFullSource !== record.halfFullSource ||
+      next.halfFullFetchedAt !== record.halfFullFetchedAt
     ) {
       changed = true;
     }
@@ -3305,6 +3347,7 @@ function renderRecords() {
         <article class="record-card">
           <strong>${record.match}</strong>
           <span>${record.status} · ${record.result}</span>
+          ${record.halfFullActual ? `<small>半全场：真实 ${record.halfFullActual}${record.halfScore ? `（半场 ${record.halfScore}）` : ""}${record.halfFullPredicted ? `；赛前 ${record.halfFullPredicted}` : ""}${record.halfFullStatus ? `；${record.halfFullStatus}` : ""}${record.halfFullSource ? `；来源 ${record.halfFullSource}` : ""}</small>` : ""}
           <small>${record.trend}</small>
           ${record.conclusion ? `<small class="review-conclusion">${record.conclusion}</small>` : ""}
           <small>${record.savedAt}</small>
@@ -3319,19 +3362,9 @@ function recordViewModel(record) {
   const match = matches.find((item) => item.id === matchId);
   const revealed = match ? state.revealedPredictions[match.id] : null;
   if (match && isCompleted(match) && revealed) {
-    const status = evaluatePrediction(match, revealed);
-    const halfFullStatus = evaluateHalfFull(match, revealed);
-    const halfFullActual = actualHalfFull(match);
-    const halfFullResult = halfFullActual ? `；半全场 ${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}` : "";
-    const result = `${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}`;
-    const statusText = halfFullStatus ? `${status}｜半全场${halfFullStatus}` : status;
     return {
       ...record,
-      match: matchTitle(match),
-      status: statusText,
-      result,
-      trend: `赛前输出：${predictionFullResultText(match, revealed)}；真实赛果：${result}。`,
-      conclusion: reviewConclusion(match, revealed, status)
+      ...completedRecordPayload(match, revealed, record.savedAt)
     };
   }
 
