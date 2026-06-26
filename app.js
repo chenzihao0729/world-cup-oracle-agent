@@ -651,6 +651,7 @@ const defaultCalibration = {
   oracleWeight: 1,
   analystWeight: 1,
   kellyWeight: 1,
+  firstHalfBias: 0,
   bothTeamsScoreBias: 0,
   totalGoalsBias: 0,
   winnerConcedeBias: 0,
@@ -1560,9 +1561,7 @@ function isCompleted(match) {
 function actualWdl(match) {
   const score = matchScore(match);
   if (!score?.completed) return "";
-  if (score.homeScore > score.awayScore) return "胜";
-  if (score.homeScore < score.awayScore) return "负";
-  return "平";
+  return wdlFromScores(score.homeScore, score.awayScore);
 }
 
 function actualResultLabel(match) {
@@ -1576,6 +1575,35 @@ function actualResultLabel(match) {
 function actualScoreText(match) {
   const score = matchScore(match);
   return score ? `${score.homeScore}-${score.awayScore}` : "";
+}
+
+function actualHalfWdl(match) {
+  const score = matchScore(match);
+  if (!score?.completed || score.halfHomeScore == null || score.halfAwayScore == null) return "";
+  return wdlFromScores(score.halfHomeScore, score.halfAwayScore);
+}
+
+function actualHalfScoreText(match) {
+  const score = matchScore(match);
+  if (!score || score.halfHomeScore == null || score.halfAwayScore == null) return "";
+  return `${score.halfHomeScore}-${score.halfAwayScore}`;
+}
+
+function actualHalfFull(match) {
+  const half = actualHalfWdl(match);
+  const full = actualWdl(match);
+  return half && full ? `${half}/${full}` : "";
+}
+
+function halfFullBase(value) {
+  return String(value || "").split("（")[0].trim();
+}
+
+function evaluateHalfFull(match, revealed) {
+  const actual = actualHalfFull(match);
+  const predicted = halfFullBase(revealed?.halfFull);
+  if (!actual || !predicted) return "";
+  return actual === predicted ? "命中" : "失准";
 }
 
 function parseScoreText(scoreText) {
@@ -1597,6 +1625,25 @@ function scoreMeta(score) {
   };
 }
 
+function competitorScoreValue(competitor) {
+  return Number(competitor?.score ?? competitor?.curatedRank?.current ?? 0);
+}
+
+function firstHalfScoreValue(competitor) {
+  const lines = competitor?.linescores || competitor?.lineScores || [];
+  if (!Array.isArray(lines) || !lines.length) return null;
+  const first = lines[0];
+  const value = first?.value ?? first?.score ?? first?.displayValue;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function wdlFromScores(home, away) {
+  if (home > away) return "胜";
+  if (home < away) return "负";
+  return "平";
+}
+
 function predictedScoreMetas(revealed) {
   return (revealed?.scoreOptions || [revealed?.predictedScore].filter(Boolean))
     .map(parseScoreText)
@@ -1613,10 +1660,17 @@ function reviewConclusion(match, revealed, status) {
   const actual = `${actualResultLabel(match)} · ${scoreText}`;
   const predicted = predictionFullResultText(match, revealed);
   const scoreHit = Boolean(scoreText && revealed?.scoreOptions?.includes(scoreText));
+  const halfFullActual = actualHalfFull(match);
+  const halfFullPredicted = halfFullBase(revealed?.halfFull);
+  const halfFullStatus = evaluateHalfFull(match, revealed);
+  const halfScore = actualHalfScoreText(match);
+  const halfFullText = halfFullActual
+    ? `；半全场赛前「${halfFullPredicted || "未记录"}」，真实「${halfFullActual}」${halfScore ? `（半场 ${halfScore}）` : ""}，半全场${halfFullStatus || "暂无验证"}`
+    : "；半场比分暂未从接口获取，半全场待补充验证";
   if (status === "命中") {
-    return `复盘结论：赛前胜平负方向「${resultPickLabel(match, revealed)}」与真实赛果「${actualResultLabel(match)}」一致，判定为命中；比分${scoreHit ? "同时落入候选区间" : `未覆盖真实比分「${scoreText}」`}，系统会据此校准总进球、双方进球概率和胜方失球倾向。`;
+    return `复盘结论：赛前胜平负方向「${resultPickLabel(match, revealed)}」与真实赛果「${actualResultLabel(match)}」一致，判定为命中；比分${scoreHit ? "同时落入候选区间" : `未覆盖真实比分「${scoreText}」`}${halfFullText}；系统会据此校准总进球、双方进球概率、胜方失球倾向和半场节奏。`;
   }
-  return `复盘结论：赛前胜平负倾向「${predicted}」与真实赛果「${actual}」方向不一致，判定为失准；模型将降低本次偏离方向的权重，同时用真实比分校准总进球、双方进球概率、胜方失球倾向与冷门风险。`;
+  return `复盘结论：赛前胜平负倾向「${predicted}」与真实赛果「${actual}」方向不一致，判定为失准${halfFullText}；模型将降低本次偏离方向的权重，同时用真实比分校准总进球、双方进球概率、胜方失球倾向、半场节奏与冷门风险。`;
 }
 
 function wdlToEdge(wdl) {
@@ -1632,6 +1686,7 @@ function applyCalibrationFromResult(match, revealed, status) {
   const directionError = actualEdge - predictedEdge;
   const scoreText = actualScoreText(match);
   const scoreHit = Boolean(scoreText && revealed.scoreOptions?.includes(scoreText));
+  const halfFullStatus = evaluateHalfFull(match, revealed);
   applyScoreCalibrationFromResult(scoreText, revealed);
   const missScale = status === "失准" ? 1 : 0.18;
   const factor = 0.018 * missScale;
@@ -1654,11 +1709,19 @@ function applyCalibrationFromResult(match, revealed, status) {
     cal.upsetBias = clamp(cal.upsetBias - 0.25, -4, 6);
     cal.analystWeight = clamp(cal.analystWeight + 0.006, 0.76, 1.24);
   }
+  if (halfFullStatus === "命中") {
+    cal.firstHalfBias = clamp(cal.firstHalfBias + 0.04, -0.45, 0.45);
+  } else if (halfFullStatus === "失准") {
+    const actualHalfEdge = wdlToEdge(actualHalfWdl(match));
+    const predictedHalfEdge = wdlToEdge(halfFullBase(revealed.halfFull).split("/")[0]);
+    cal.firstHalfBias = clamp(cal.firstHalfBias + (actualHalfEdge - predictedHalfEdge) * 0.08, -0.45, 0.45);
+  }
 
   cal.samples += 1;
   cal.learnedMatches[match.id] = {
     status,
-    actual: `${actualResultLabel(match)} ${scoreText}`,
+    halfFullStatus,
+    actual: `${actualResultLabel(match)} ${scoreText}${actualHalfFull(match) ? ` 半全场${actualHalfFull(match)}` : ""}`,
     predicted: predictionFullResultText(match, revealed),
     conclusion: reviewConclusion(match, revealed, status),
     learnedAt: new Date().toISOString()
@@ -1693,16 +1756,20 @@ function syncCompletedVerifications() {
 
     const recordId = `auto-${match.id}`;
     const status = evaluatePrediction(match, revealed);
+    const halfFullStatus = evaluateHalfFull(match, revealed);
     if (applyCalibrationFromResult(match, revealed, status)) learned = true;
-    const result = `${actualResultLabel(match)} · ${actualScoreText(match)}`;
-    const trend = `赛前输出：${predictionFullResultText(match, revealed)}；真实赛果：${result}。`;
+    const halfFullActual = actualHalfFull(match);
+    const halfFullResult = halfFullActual ? `；半全场 ${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}` : "";
+    const result = `${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}`;
+    const statusText = halfFullStatus ? `${status}｜半全场${halfFullStatus}` : status;
+    const trend = `赛前输出：${predictionFullResultText(match, revealed)}；真实赛果：${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}。`;
     const conclusion = reviewConclusion(match, revealed, status);
     const savedAt = new Date().toLocaleString("zh-CN", { hour12: false });
     const existing = state.records.find((record) => record.id === recordId);
 
     if (existing) {
-      if (existing.result !== result || existing.status !== status || existing.trend !== trend || existing.conclusion !== conclusion) {
-        Object.assign(existing, { result, status, trend, conclusion, savedAt });
+      if (existing.result !== result || existing.status !== statusText || existing.trend !== trend || existing.conclusion !== conclusion) {
+        Object.assign(existing, { result, status: statusText, trend, conclusion, savedAt });
         changed = true;
       }
       return;
@@ -1712,7 +1779,7 @@ function syncCompletedVerifications() {
       id: recordId,
       match: `${match.home.name} vs ${match.away.name}`,
       result,
-      status,
+      status: statusText,
       trend,
       conclusion,
       savedAt
@@ -1940,6 +2007,10 @@ function extractScoreEvent(event, match) {
     return key.includes(matchAwayKey) || matchAwayKey.includes(key);
   });
   if (!home || !away) return null;
+  const homeScore = competitorScoreValue(home);
+  const awayScore = competitorScoreValue(away);
+  const halfHomeScore = firstHalfScoreValue(home);
+  const halfAwayScore = firstHalfScoreValue(away);
 
   return {
     source: "ESPN scoreboard",
@@ -1947,8 +2018,10 @@ function extractScoreEvent(event, match) {
     status: competition.status?.type?.shortDetail || event.status?.type?.shortDetail || "未开始",
     completed: Boolean(competition.status?.type?.completed || event.status?.type?.completed),
     state: competition.status?.type?.state || event.status?.type?.state || "pre",
-    homeScore: Number(home.score || 0),
-    awayScore: Number(away.score || 0)
+    homeScore,
+    awayScore,
+    halfHomeScore,
+    halfAwayScore
   };
 }
 
@@ -2685,7 +2758,8 @@ function deriveHalfFullPick(match, prediction, learning) {
       Math.abs(edge) * 1.15 +
       (totalGoals - 2.2) * 10 +
       (prediction.model.timeSlot.bias > 0 ? 5 : -2) -
-      prediction.model.drawIndex * 0.18,
+      prediction.model.drawIndex * 0.18 +
+      state.calibration.firstHalfBias * 12,
     18,
     82
   );
@@ -3030,6 +3104,9 @@ function renderAnalysis() {
   $("#livePick").textContent = completed ? "比赛已结束" : revealed ? ((revealed.liveSource || preview?.live.source || "").includes("Open") ? "实时已接入" : "降级因子") : "等待推演";
   if (completed) {
     const reviewStatus = revealed ? evaluatePrediction(match, revealed) : "";
+    const halfFullStatus = revealed ? evaluateHalfFull(match, revealed) : "";
+    const halfFullActual = actualHalfFull(match);
+    const halfFullLine = halfFullActual ? `真实半全场：${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}${halfFullStatus ? `，赛前半全场验证：${halfFullStatus}` : ""}。` : "半场比分暂未从接口获取，半全场待补充验证。";
     const reviewText = revealed ? reviewConclusion(match, revealed, reviewStatus) : "复盘结论：当前未找到赛前推演记录，仅展示网络获取的真实赛果，无法进行命中复盘。";
     $("#mainHexagram").textContent = "比赛已结束";
     $("#changedHexagram").textContent = "比赛已结束";
@@ -3037,6 +3114,7 @@ function renderAnalysis() {
     $("#changedYao").innerHTML = "";
     $("#tabBody").innerHTML = `
       <div class="insight">比赛已结束，当前显示网络获取的真实赛果：${matchTitle(match)} ${actualScoreText(match)}，比赛结果为「${actualResultLabel(match)}」。</div>
+      <div class="insight">${halfFullLine}</div>
       ${revealed ? `<div class="insight">赛前推演：${predictionFullResultText(match, revealed)}；验证状态：${reviewStatus}。</div>` : ""}
       <div class="insight review-conclusion">${reviewText}</div>
       <div class="insight risk">完赛场次不再进行赛前推演；系统已将复盘结果写入结果记录，并用于后续权重校准。</div>
@@ -3095,11 +3173,15 @@ function recordViewModel(record) {
   const revealed = match ? state.revealedPredictions[match.id] : null;
   if (match && isCompleted(match) && revealed) {
     const status = evaluatePrediction(match, revealed);
-    const result = `${actualResultLabel(match)} · ${actualScoreText(match)}`;
+    const halfFullStatus = evaluateHalfFull(match, revealed);
+    const halfFullActual = actualHalfFull(match);
+    const halfFullResult = halfFullActual ? `；半全场 ${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}` : "";
+    const result = `${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}`;
+    const statusText = halfFullStatus ? `${status}｜半全场${halfFullStatus}` : status;
     return {
       ...record,
       match: matchTitle(match),
-      status,
+      status: statusText,
       result,
       trend: `赛前输出：${predictionFullResultText(match, revealed)}；真实赛果：${result}。`,
       conclusion: reviewConclusion(match, revealed, status)
