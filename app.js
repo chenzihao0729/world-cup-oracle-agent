@@ -716,6 +716,7 @@ const state = {
   activeTab: "data",
   modalScrollY: 0,
   deductionRunId: 0,
+  resizeTimer: null,
   liveData: {},
   scoreData: {},
   oddsData: {},
@@ -3400,6 +3401,36 @@ function renderAnalysis() {
     tab.disabled = disabled;
     tab.classList.toggle("is-disabled", disabled);
   });
+  schedulePanelHeightSync();
+}
+
+function schedulePanelHeightSync() {
+  requestAnimationFrame(() => {
+    const panel = document.querySelector(".match-panel");
+    const list = document.querySelector(".match-list");
+    const analysis = document.querySelector(".analysis-panel");
+    const title = document.querySelector(".match-panel h2");
+    const kicker = document.querySelector(".match-panel .section-kicker");
+    if (!panel || !list || !analysis || !title) return;
+
+    const panelRect = panel.getBoundingClientRect();
+    const analysisRect = analysis.getBoundingClientRect();
+    const isStacked = analysisRect.top > panelRect.top + 24;
+    if (isStacked || window.innerWidth <= 980) {
+      panel.style.height = "";
+      list.style.removeProperty("--match-list-height");
+      return;
+    }
+
+    const analysisHeight = Math.ceil(analysis.getBoundingClientRect().height);
+    const panelStyle = getComputedStyle(panel);
+    const paddingY = parseFloat(panelStyle.paddingTop) + parseFloat(panelStyle.paddingBottom);
+    const titleHeight = title.getBoundingClientRect().height + parseFloat(getComputedStyle(title).marginBottom || 0);
+    const kickerHeight = kicker ? kicker.getBoundingClientRect().height : 0;
+    const listHeight = Math.max(260, analysisHeight - paddingY - titleHeight - kickerHeight);
+    panel.style.height = `${analysisHeight}px`;
+    list.style.setProperty("--match-list-height", `${Math.floor(listHeight)}px`);
+  });
 }
 
 function renderRecords() {
@@ -3983,6 +4014,11 @@ function bindEvents() {
     state.records = [];
     persistRecords();
     renderRecords();
+  });
+
+  window.addEventListener("resize", () => {
+    clearTimeout(state.resizeTimer);
+    state.resizeTimer = setTimeout(schedulePanelHeightSync, 120);
   });
 }
 
