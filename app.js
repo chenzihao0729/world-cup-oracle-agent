@@ -706,6 +706,9 @@ const ODDS_MONTHLY_BUDGET = 500;
 const SCHEDULE_CACHE_KEY = "oracle-schedule-cache";
 const SCHEDULE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const SCHEDULE_LOOKAHEAD_DAYS = 35;
+const FOOTBALL_DATA_CACHE_KEY = "oracle-football-data-cache";
+const FOOTBALL_DATA_CACHE_TTL_MS = 30 * 60 * 1000;
+const FOOTBALL_DATA_MIN_INTERVAL_MS = 8 * 1000;
 const FOOTBALL_DATA_MATCHES_URL = "https://api.football-data.org/v4/matches";
 
 const state = {
@@ -2065,11 +2068,65 @@ function parseFootballDataScore(event) {
   };
 }
 
-async function fetchFootballDataScores() {
+function footballDataNeeded(scoreData = state.scoreData) {
+  return matches.some((match) => {
+    const score = scoreData[match.id];
+    return score?.completed && (score.halfHomeScore == null || score.halfAwayScore == null);
+  });
+}
+
+function footballDataDateRange() {
+  const targetMatches = matches.filter((match) => {
+    const score = state.scoreData[match.id];
+    return score?.completed || matchStartTime(match) <= currentChinaNow();
+  });
+  const dateKeys = (targetMatches.length ? targetMatches : matches).map((match) => chinaDateKey(match.beijingTime)).sort();
+  return {
+    dateFrom: dateKeys[0] || currentChinaDateKey(),
+    dateTo: dateKeys[dateKeys.length - 1] || currentChinaDateKey()
+  };
+}
+
+function readFootballDataCache(range) {
+  try {
+    const cache = JSON.parse(localStorage.getItem(FOOTBALL_DATA_CACHE_KEY) || "{}");
+    if (!cache.fetchedAt || !cache.data) return null;
+    if (cache.dateFrom !== range.dateFrom || cache.dateTo !== range.dateTo) return null;
+    if (Date.now() - new Date(cache.fetchedAt).getTime() > FOOTBALL_DATA_CACHE_TTL_MS) return null;
+    return cache;
+  } catch (error) {
+    return null;
+  }
+}
+
+function writeFootballDataCache(range, data) {
+  localStorage.setItem(FOOTBALL_DATA_CACHE_KEY, JSON.stringify({
+    ...range,
+    fetchedAt: new Date().toISOString(),
+    data
+  }));
+}
+
+function footballDataLastFetchAt() {
+  try {
+    return Number(localStorage.getItem("oracle-football-data-last-fetch") || 0);
+  } catch (error) {
+    return 0;
+  }
+}
+
+function writeFootballDataLastFetchAt() {
+  localStorage.setItem("oracle-football-data-last-fetch", String(Date.now()));
+}
+
+async function fetchFootballDataScores({ force = false } = {}) {
   if (!state.footballDataApiKey) return {};
-  const dateKeys = matches.map((match) => chinaDateKey(match.beijingTime)).sort();
-  const dateFrom = dateKeys[0] || currentChinaDateKey();
-  const dateTo = dateKeys[dateKeys.length - 1] || currentChinaDateKey();
+  const range = footballDataDateRange();
+  const cached = readFootballDataCache(range);
+  if (!force && cached) return cached.data;
+  if (!force && Date.now() - footballDataLastFetchAt() < FOOTBALL_DATA_MIN_INTERVAL_MS) return cached?.data || {};
+  writeFootballDataLastFetchAt();
+  const { dateFrom, dateTo } = range;
   const url = `${FOOTBALL_DATA_MATCHES_URL}?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`;
   const response = await fetch(url, {
     cache: "no-store",
@@ -2087,6 +2144,7 @@ async function fetchFootballDataScores() {
     const parsed = event ? parseFootballDataScore(event) : null;
     if (parsed) matched[match.id] = parsed;
   });
+  writeFootballDataCache(range, matched);
   return matched;
 }
 
@@ -2131,11 +2189,13 @@ async function fetchScoreboardData() {
     const score = events.map((event) => extractScoreEvent(event, match)).find(Boolean);
     if (score) scoreData[match.id] = score;
   });
-  try {
-    const footballDataScores = await fetchFootballDataScores();
-    mergeFootballDataScores(scoreData, footballDataScores);
-  } catch (error) {
-    // Football-Data is a supplemental source; ESPN scores remain available on failure.
+  if (footballDataNeeded(scoreData)) {
+    try {
+      const footballDataScores = await fetchFootballDataScores();
+      mergeFootballDataScores(scoreData, footballDataScores);
+    } catch (error) {
+      // Football-Data is a supplemental source; ESPN scores remain available on failure.
+    }
   }
   state.scoreData = scoreData;
   return Object.keys(scoreData).length;
