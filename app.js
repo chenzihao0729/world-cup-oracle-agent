@@ -706,8 +706,7 @@ const ODDS_MONTHLY_BUDGET = 500;
 const SCHEDULE_CACHE_KEY = "oracle-schedule-cache";
 const SCHEDULE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const SCHEDULE_LOOKAHEAD_DAYS = 35;
-const SPORTTERY_HALF_FULL_URL = "https://webapi.sporttery.cn/gateway/lottery/getFootBallDrawInfoV2.qry?isVerify=1&param=94,0;90,0;98,0";
-const SPORTTERY_HALF_FULL_DRAW_URL = "https://webapi.sporttery.cn/gateway/lottery/getFootBallDrawInfoByDrawNumV2.qry?isVerify=1&lotteryGameNum=98";
+const FOOTBALL_DATA_MATCHES_URL = "https://api.football-data.org/v4/matches";
 
 const state = {
   selectedId: null,
@@ -718,6 +717,7 @@ const state = {
   scoreData: {},
   oddsData: {},
   oddsApiKey: String(window.ORACLE_CONFIG?.oddsApiKey || localStorage.getItem("odds-api-key") || "").trim(),
+  footballDataApiKey: String(window.ORACLE_CONFIG?.footballDataApiKey || localStorage.getItem("football-data-api-key") || "").trim(),
   oddsSportKey: String(window.ORACLE_CONFIG?.oddsSportKey || localStorage.getItem("odds-sport-key") || "soccer_fifa_world_cup").trim(),
   oddsRegions: String(window.ORACLE_CONFIG?.oddsRegions || localStorage.getItem("odds-regions") || "us").trim(),
   revealedPredictions: JSON.parse(localStorage.getItem("oracle-predictions") || "{}"),
@@ -1601,14 +1601,6 @@ function halfFullBase(value) {
   return String(value || "").split("（")[0].trim();
 }
 
-function sportteryResultToWdl(value) {
-  const text = String(value || "").trim();
-  if (text === "3" || text === "胜") return "胜";
-  if (text === "1" || text === "平") return "平";
-  if (text === "0" || text === "负") return "负";
-  return "";
-}
-
 function evaluateHalfFull(match, revealed) {
   const actual = actualHalfFull(match);
   const predicted = halfFullBase(revealed?.halfFull);
@@ -2035,99 +2027,71 @@ function extractScoreEvent(event, match) {
   };
 }
 
-function sportteryTeamsMatch(item, match) {
-  const home = normalizeTeamName(item.masterTeamName || item.homeTeamName || item.home || "");
-  const away = normalizeTeamName(item.guestTeamName || item.awayTeamName || item.away || "");
-  const expectedHome = normalizeTeamName(match.home.name);
-  const expectedAway = normalizeTeamName(match.away.name);
-  if (!home || !away || !expectedHome || !expectedAway) return false;
+function footballDataTeamsMatch(event, match) {
+  const homeCandidates = [event.homeTeam?.name, event.homeTeam?.shortName, event.homeTeam?.tla].map(normalizeTeamName).filter(Boolean);
+  const awayCandidates = [event.awayTeam?.name, event.awayTeam?.shortName, event.awayTeam?.tla].map(normalizeTeamName).filter(Boolean);
+  const expectedHomeCandidates = [match.espn?.home, match.home.name].map(normalizeTeamName).filter(Boolean);
+  const expectedAwayCandidates = [match.espn?.away, match.away.name].map(normalizeTeamName).filter(Boolean);
+  const matchesAny = (leftList, rightList) => leftList.some((left) => rightList.some((right) => left.includes(right) || right.includes(left)));
+  if (!homeCandidates.length || !awayCandidates.length || !expectedHomeCandidates.length || !expectedAwayCandidates.length) return false;
   return (
-    (home.includes(expectedHome) || expectedHome.includes(home)) &&
-    (away.includes(expectedAway) || expectedAway.includes(away))
+    matchesAny(homeCandidates, expectedHomeCandidates) &&
+    matchesAny(awayCandidates, expectedAwayCandidates)
   ) || (
-    (home.includes(expectedAway) || expectedAway.includes(home)) &&
-    (away.includes(expectedHome) || expectedHome.includes(away))
+    matchesAny(homeCandidates, expectedAwayCandidates) &&
+    matchesAny(awayCandidates, expectedHomeCandidates)
   );
 }
 
-function parseSportteryHalfFullItem(item, drawNum = "") {
-  const resultParts = String(item.result || "").split(",");
-  const halfWdl = sportteryResultToWdl(resultParts[0]);
-  const fullWdl = sportteryResultToWdl(resultParts[1]);
-  const halfScore = parseScoreText(item.czHalfScore);
-  const fullScore = parseScoreText(item.czScore);
-  if (!halfWdl && !fullWdl && !halfScore && !fullScore) return null;
+function parseFootballDataScore(event) {
+  const full = event.score?.fullTime || {};
+  const half = event.score?.halfTime || {};
+  const homeScore = Number(full.home);
+  const awayScore = Number(full.away);
+  const halfHomeScore = Number(half.home);
+  const halfAwayScore = Number(half.away);
+  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
   return {
-    source: "中国体彩网 6场半全场",
+    source: "Football-Data",
     fetchedAt: new Date().toISOString(),
-    halfHomeScore: halfScore?.home ?? null,
-    halfAwayScore: halfScore?.away ?? null,
-    homeScore: fullScore?.home ?? null,
-    awayScore: fullScore?.away ?? null,
-    halfFull: halfWdl && fullWdl ? `${halfWdl}/${fullWdl}` : "",
-    lotteryDrawNum: drawNum || item.lotteryDrawNum || ""
+    status: event.status === "FINISHED" ? "比赛已结束" : event.status || "比分已更新",
+    completed: event.status === "FINISHED",
+    state: event.status === "FINISHED" ? "post" : "in",
+    homeScore,
+    awayScore,
+    halfHomeScore: Number.isFinite(halfHomeScore) ? halfHomeScore : null,
+    halfAwayScore: Number.isFinite(halfAwayScore) ? halfAwayScore : null,
+    footballDataId: event.id
   };
 }
 
-function matchSportteryHalfFullList(list, drawNum = "") {
+async function fetchFootballDataScores() {
+  if (!state.footballDataApiKey) return {};
+  const dateKeys = matches.map((match) => chinaDateKey(match.beijingTime)).sort();
+  const dateFrom = dateKeys[0] || currentChinaDateKey();
+  const dateTo = dateKeys[dateKeys.length - 1] || currentChinaDateKey();
+  const url = `${FOOTBALL_DATA_MATCHES_URL}?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`;
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      "X-Auth-Token": state.footballDataApiKey,
+      Accept: "application/json"
+    }
+  });
+  if (!response.ok) throw new Error(`Football-Data ${response.status}`);
+  const payload = await response.json();
+  const events = Array.isArray(payload.matches) ? payload.matches : [];
   const matched = {};
   matches.forEach((match) => {
-    const item = list.find((candidate) => sportteryTeamsMatch(candidate, match));
-    const parsed = item ? parseSportteryHalfFullItem(item, drawNum) : null;
+    const event = events.find((candidate) => footballDataTeamsMatch(candidate, match));
+    const parsed = event ? parseFootballDataScore(event) : null;
     if (parsed) matched[match.id] = parsed;
   });
   return matched;
 }
 
-async function fetchSportteryHalfFullDraw(drawNum) {
-  const url = `${SPORTTERY_HALF_FULL_DRAW_URL}&lotteryDrawNum=${encodeURIComponent(drawNum)}`;
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      Accept: "application/json,text/plain,*/*"
-    }
-  });
-  if (!response.ok) throw new Error(`Sporttery ${response.status}`);
-  const payload = await response.json();
-  const list = Array.isArray(payload?.value?.matchList) ? payload.value.matchList : [];
-  return matchSportteryHalfFullList(list, drawNum);
-}
-
-async function fetchSportteryHalfFullData() {
-  const response = await fetch(SPORTTERY_HALF_FULL_URL, {
-    cache: "no-store",
-    headers: {
-      Accept: "application/json,text/plain,*/*"
-    }
-  });
-  if (!response.ok) throw new Error(`Sporttery ${response.status}`);
-  const payload = await response.json();
-  const detail = payload?.value?.bqcDetail;
-  const list = Array.isArray(detail?.matchList) ? detail.matchList : [];
-  const matched = matchSportteryHalfFullList(list, detail?.lotteryDrawNum);
-  const drawList = Array.isArray(payload?.value?.bqclist) ? payload.value.bqclist : [];
-  const completedWithoutHalf = matches
-    .filter((match) => isCompleted(match) && !actualHalfScoreText(match))
-    .map((match) => match.id);
-  const drawNums = drawList
-    .map((item) => item?.lotteryDrawNum || item)
-    .filter(Boolean)
-    .filter((drawNum) => drawNum !== detail?.lotteryDrawNum)
-    .slice(0, 12);
-
-  for (const drawNum of drawNums) {
-    if (completedWithoutHalf.every((id) => matched[id])) break;
-    try {
-      Object.assign(matched, await fetchSportteryHalfFullDraw(drawNum));
-    } catch (error) {
-      // Continue with other draw periods.
-    }
-  }
-  return matched;
-}
-
-function mergeSportteryHalfFull(scoreData, halfFullData) {
-  Object.entries(halfFullData || {}).forEach(([id, supplement]) => {
+function mergeFootballDataScores(scoreData, footballDataScores) {
+  Object.entries(footballDataScores || {}).forEach(([id, supplement]) => {
     const current = scoreData[id] || {};
     const merged = { ...current };
     if (merged.halfHomeScore == null && supplement.halfHomeScore != null) merged.halfHomeScore = supplement.halfHomeScore;
@@ -2138,9 +2102,10 @@ function mergeSportteryHalfFull(scoreData, halfFullData) {
     }
     merged.halfFullSource = supplement.source;
     merged.halfFullFetchedAt = supplement.fetchedAt;
-    if (supplement.homeScore != null && supplement.awayScore != null) merged.completed = true;
-    if (!merged.status && supplement.halfFull) merged.status = "比赛已结束";
-    if (!merged.state && supplement.halfFull) merged.state = "post";
+    merged.footballDataId = supplement.footballDataId;
+    if (supplement.completed) merged.completed = true;
+    if (!merged.status || supplement.completed) merged.status = supplement.status;
+    if (!merged.state || supplement.completed) merged.state = supplement.state;
     if (!merged.source) merged.source = supplement.source;
     scoreData[id] = merged;
   });
@@ -2167,10 +2132,10 @@ async function fetchScoreboardData() {
     if (score) scoreData[match.id] = score;
   });
   try {
-    const halfFullData = await fetchSportteryHalfFullData();
-    mergeSportteryHalfFull(scoreData, halfFullData);
+    const footballDataScores = await fetchFootballDataScores();
+    mergeFootballDataScores(scoreData, footballDataScores);
   } catch (error) {
-    // Sporttery is a supplemental source and may be blocked by WAF/CORS.
+    // Football-Data is a supplemental source; ESPN scores remain available on failure.
   }
   state.scoreData = scoreData;
   return Object.keys(scoreData).length;
