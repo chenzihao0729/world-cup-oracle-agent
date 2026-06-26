@@ -706,6 +706,7 @@ const ODDS_MONTHLY_BUDGET = 500;
 const SCHEDULE_CACHE_KEY = "oracle-schedule-cache";
 const SCHEDULE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const SCHEDULE_LOOKAHEAD_DAYS = 35;
+const SPORTTERY_HALF_FULL_URL = "https://webapi.sporttery.cn/gateway/lottery/getFootBallDrawInfoV2.qry?isVerify=1&param=94,0;90,0;98,0";
 
 const state = {
   selectedId: null,
@@ -1599,6 +1600,14 @@ function halfFullBase(value) {
   return String(value || "").split("（")[0].trim();
 }
 
+function sportteryResultToWdl(value) {
+  const text = String(value || "").trim();
+  if (text === "3" || text === "胜") return "胜";
+  if (text === "1" || text === "平") return "平";
+  if (text === "0" || text === "负") return "负";
+  return "";
+}
+
 function evaluateHalfFull(match, revealed) {
   const actual = actualHalfFull(match);
   const predicted = halfFullBase(revealed?.halfFull);
@@ -2025,6 +2034,79 @@ function extractScoreEvent(event, match) {
   };
 }
 
+function sportteryTeamsMatch(item, match) {
+  const home = normalizeTeamName(item.masterTeamName || item.homeTeamName || item.home || "");
+  const away = normalizeTeamName(item.guestTeamName || item.awayTeamName || item.away || "");
+  const expectedHome = normalizeTeamName(match.home.name);
+  const expectedAway = normalizeTeamName(match.away.name);
+  if (!home || !away || !expectedHome || !expectedAway) return false;
+  return (
+    (home.includes(expectedHome) || expectedHome.includes(home)) &&
+    (away.includes(expectedAway) || expectedAway.includes(away))
+  ) || (
+    (home.includes(expectedAway) || expectedAway.includes(home)) &&
+    (away.includes(expectedHome) || expectedHome.includes(away))
+  );
+}
+
+function parseSportteryHalfFullItem(item) {
+  const resultParts = String(item.result || "").split(",");
+  const halfWdl = sportteryResultToWdl(resultParts[0]);
+  const fullWdl = sportteryResultToWdl(resultParts[1]);
+  const halfScore = parseScoreText(item.czHalfScore);
+  const fullScore = parseScoreText(item.czScore);
+  if (!halfWdl && !fullWdl && !halfScore && !fullScore) return null;
+  return {
+    source: "中国体彩网 6场半全场",
+    fetchedAt: new Date().toISOString(),
+    halfHomeScore: halfScore?.home ?? null,
+    halfAwayScore: halfScore?.away ?? null,
+    homeScore: fullScore?.home ?? null,
+    awayScore: fullScore?.away ?? null,
+    halfFull: halfWdl && fullWdl ? `${halfWdl}/${fullWdl}` : "",
+    lotteryDrawNum: item.lotteryDrawNum || ""
+  };
+}
+
+async function fetchSportteryHalfFullData() {
+  const response = await fetch(SPORTTERY_HALF_FULL_URL, {
+    cache: "no-store",
+    headers: {
+      Accept: "application/json,text/plain,*/*"
+    }
+  });
+  if (!response.ok) throw new Error(`Sporttery ${response.status}`);
+  const payload = await response.json();
+  const detail = payload?.value?.bqcDetail;
+  const list = Array.isArray(detail?.matchList) ? detail.matchList : [];
+  if (!list.length) return {};
+  const matched = {};
+  matches.forEach((match) => {
+    const item = list.find((candidate) => sportteryTeamsMatch(candidate, match));
+    const parsed = item ? parseSportteryHalfFullItem(item) : null;
+    if (parsed) matched[match.id] = parsed;
+  });
+  return matched;
+}
+
+function mergeSportteryHalfFull(scoreData, halfFullData) {
+  Object.entries(halfFullData || {}).forEach(([id, supplement]) => {
+    const current = scoreData[id] || {};
+    const merged = { ...current };
+    if (merged.halfHomeScore == null && supplement.halfHomeScore != null) merged.halfHomeScore = supplement.halfHomeScore;
+    if (merged.halfAwayScore == null && supplement.halfAwayScore != null) merged.halfAwayScore = supplement.halfAwayScore;
+    if ((merged.homeScore == null || merged.awayScore == null) && supplement.homeScore != null && supplement.awayScore != null) {
+      merged.homeScore = supplement.homeScore;
+      merged.awayScore = supplement.awayScore;
+    }
+    merged.halfFullSource = supplement.source;
+    merged.halfFullFetchedAt = supplement.fetchedAt;
+    if (!merged.source) merged.source = supplement.source;
+    scoreData[id] = merged;
+  });
+  return scoreData;
+}
+
 async function fetchScoreboardData() {
   const dateKeys = [...new Set(matches.map((match) => utcDateKey(match.beijingTime)))];
   const responses = await Promise.allSettled(
@@ -2044,6 +2126,12 @@ async function fetchScoreboardData() {
     const score = events.map((event) => extractScoreEvent(event, match)).find(Boolean);
     if (score) scoreData[match.id] = score;
   });
+  try {
+    const halfFullData = await fetchSportteryHalfFullData();
+    mergeSportteryHalfFull(scoreData, halfFullData);
+  } catch (error) {
+    // Sporttery is a supplemental source and may be blocked by WAF/CORS.
+  }
   state.scoreData = scoreData;
   return Object.keys(scoreData).length;
 }
@@ -3106,7 +3194,8 @@ function renderAnalysis() {
     const reviewStatus = revealed ? evaluatePrediction(match, revealed) : "";
     const halfFullStatus = revealed ? evaluateHalfFull(match, revealed) : "";
     const halfFullActual = actualHalfFull(match);
-    const halfFullLine = halfFullActual ? `真实半全场：${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}${halfFullStatus ? `，赛前半全场验证：${halfFullStatus}` : ""}。` : "半场比分暂未从接口获取，半全场待补充验证。";
+    const scoreSource = matchScore(match)?.halfFullSource || matchScore(match)?.source || "比分接口";
+    const halfFullLine = halfFullActual ? `真实半全场：${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}${halfFullStatus ? `，赛前半全场验证：${halfFullStatus}` : ""}，来源：${scoreSource}。` : "半场比分暂未从接口获取，半全场待补充验证。";
     const reviewText = revealed ? reviewConclusion(match, revealed, reviewStatus) : "复盘结论：当前未找到赛前推演记录，仅展示网络获取的真实赛果，无法进行命中复盘。";
     $("#mainHexagram").textContent = "比赛已结束";
     $("#changedHexagram").textContent = "比赛已结束";
