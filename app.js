@@ -2055,7 +2055,7 @@ function parseFootballDataScore(event) {
   const halfAwayScore = Number(half.away);
   if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
   return {
-    source: "Football-Data",
+    source: "Football-Data 半场比分",
     fetchedAt: new Date().toISOString(),
     status: event.status === "FINISHED" ? "比赛已结束" : event.status || "比分已更新",
     completed: event.status === "FINISHED",
@@ -2150,21 +2150,14 @@ async function fetchFootballDataScores({ force = false } = {}) {
 
 function mergeFootballDataScores(scoreData, footballDataScores) {
   Object.entries(footballDataScores || {}).forEach(([id, supplement]) => {
-    const current = scoreData[id] || {};
+    const current = scoreData[id];
+    if (!current) return;
     const merged = { ...current };
     if (merged.halfHomeScore == null && supplement.halfHomeScore != null) merged.halfHomeScore = supplement.halfHomeScore;
     if (merged.halfAwayScore == null && supplement.halfAwayScore != null) merged.halfAwayScore = supplement.halfAwayScore;
-    if ((merged.homeScore == null || merged.awayScore == null) && supplement.homeScore != null && supplement.awayScore != null) {
-      merged.homeScore = supplement.homeScore;
-      merged.awayScore = supplement.awayScore;
-    }
     merged.halfFullSource = supplement.source;
     merged.halfFullFetchedAt = supplement.fetchedAt;
     merged.footballDataId = supplement.footballDataId;
-    if (supplement.completed) merged.completed = true;
-    if (!merged.status || supplement.completed) merged.status = supplement.status;
-    if (!merged.state || supplement.completed) merged.state = supplement.state;
-    if (!merged.source) merged.source = supplement.source;
     scoreData[id] = merged;
   });
   return scoreData;
