@@ -1710,86 +1710,6 @@ function recordNeedsPayloadUpdate(record, payload) {
   ].some((key) => (record[key] || "") !== (payload[key] || ""));
 }
 
-function halfFullResultWdl(result) {
-  if (result.homeScore > result.awayScore) return "胜";
-  if (result.homeScore < result.awayScore) return "负";
-  return "平";
-}
-
-function halfFullResultText(result) {
-  const half = result.halfHomeScore > result.halfAwayScore ? "胜" : result.halfHomeScore < result.halfAwayScore ? "负" : "平";
-  return `${half}/${halfFullResultWdl(result)}`;
-}
-
-function halfFullResultScoreText(result) {
-  return `${result.homeScore}-${result.awayScore}`;
-}
-
-function halfFullResultHalfScoreText(result) {
-  return `${result.halfHomeScore}-${result.halfAwayScore}`;
-}
-
-function halfFullResultActualLabel(result) {
-  const wdl = halfFullResultWdl(result);
-  if (wdl === "平") return "平局";
-  return `${wdl === "胜" ? result.home : result.away}胜`;
-}
-
-function recordMatchesHalfFullResult(record, result) {
-  const recordText = normalizeTeamName(`${record.match || ""} ${record.result || ""} ${record.trend || ""}`);
-  const homeKeys = [result.home, ...(result.homeAliases || [])].map(normalizeTeamName).filter(Boolean);
-  const awayKeys = [result.away, ...(result.awayAliases || [])].map(normalizeTeamName).filter(Boolean);
-  return homeKeys.some((key) => recordText.includes(key)) && awayKeys.some((key) => recordText.includes(key));
-}
-
-function halfFullSeedRecordPayload(result, existing = {}) {
-  const actual = halfFullResultText(result);
-  const halfScore = halfFullResultHalfScoreText(result);
-  const score = halfFullResultScoreText(result);
-  const actualLabel = halfFullResultActualLabel(result);
-  const predicted = existing.halfFullPredicted || String(existing.trend || "").match(/半全场\s*([胜平负]\/[胜平负])/)?.[1] || "";
-  const halfFullStatus = predicted ? (predicted === actual ? "命中" : "失准") : "已补录";
-  return {
-    id: existing.id || result.id,
-    match: existing.match || `${result.home} vs ${result.away}`,
-    result: `${actualLabel} · ${score}；半全场 ${actual}（半场 ${halfScore}）`,
-    status: existing.status && !existing.status.includes("半全场") ? `${existing.status}｜半全场${halfFullStatus}` : (existing.status || `已补录｜半全场${halfFullStatus}`),
-    trend: existing.trend || `真实赛果：${actualLabel} · ${score}；半全场 ${actual}（半场 ${halfScore}）。`,
-    conclusion: existing.conclusion || "复盘结论：已补齐半场比分与半全场赛果，可用于后续半全场节奏与胜平负复盘校准。",
-    savedAt: existing.savedAt || new Date().toLocaleString("zh-CN", { hour12: false }),
-    halfScore,
-    halfFullActual: actual,
-    halfFullPredicted: predicted,
-    halfFullStatus,
-    halfFullSource: result.source,
-    halfFullFetchedAt: result.utcDate
-  };
-}
-
-function syncFootballDataHalfFullRecords() {
-  const cache = readFootballDataCache(footballDataDateRange());
-  const recentHalfFullResults = Array.isArray(cache?.finishedRecords)
-    ? [...cache.finishedRecords].sort((a, b) => new Date(b.utcDate || 0) - new Date(a.utcDate || 0)).slice(0, 2)
-    : [];
-  if (!recentHalfFullResults.length) return false;
-  let changed = false;
-  recentHalfFullResults.forEach((result) => {
-    const existing = state.records.find((record) => recordMatchesHalfFullResult(record, result) || record.id === result.id);
-    const payload = halfFullSeedRecordPayload(result, existing || {});
-    if (existing) {
-      if (recordNeedsPayloadUpdate(existing, payload)) {
-        Object.assign(existing, payload, { id: existing.id || payload.id });
-        changed = true;
-      }
-      return;
-    }
-    state.records.unshift(payload);
-    changed = true;
-  });
-  if (changed) persistRecords();
-  return changed;
-}
-
 function reviewConclusion(match, revealed, status) {
   const scoreText = actualScoreText(match);
   const actual = `${actualResultLabel(match)} · ${scoreText}`;
@@ -2190,26 +2110,6 @@ function parseFootballDataScore(event) {
   };
 }
 
-function parseFootballDataFinishedRecord(event) {
-  const parsed = parseFootballDataScore(event);
-  if (!parsed?.completed || parsed.halfHomeScore == null || parsed.halfAwayScore == null) return null;
-  return {
-    id: `fd-half-full-${event.id}`,
-    utcDate: event.utcDate,
-    home: translateTeamName(event.homeTeam?.shortName || event.homeTeam?.name || event.homeTeam?.tla),
-    away: translateTeamName(event.awayTeam?.shortName || event.awayTeam?.name || event.awayTeam?.tla),
-    homeAliases: [event.homeTeam?.name, event.homeTeam?.shortName, event.homeTeam?.tla].filter(Boolean),
-    awayAliases: [event.awayTeam?.name, event.awayTeam?.shortName, event.awayTeam?.tla].filter(Boolean),
-    homeScore: parsed.homeScore,
-    awayScore: parsed.awayScore,
-    halfHomeScore: parsed.halfHomeScore,
-    halfAwayScore: parsed.halfAwayScore,
-    source: parsed.source,
-    fetchedAt: parsed.fetchedAt,
-    footballDataId: parsed.footballDataId
-  };
-}
-
 function footballDataNeeded(scoreData = state.scoreData) {
   return matches.some((match) => {
     const score = scoreData[match.id];
@@ -2236,8 +2136,8 @@ function readFootballDataCache(range) {
     if (cache.dateFrom !== range.dateFrom || cache.dateTo !== range.dateTo) return null;
     if (Date.now() - new Date(cache.fetchedAt).getTime() > FOOTBALL_DATA_CACHE_TTL_MS) return null;
     if (!cache.data) {
-      const { dateFrom, dateTo, fetchedAt, finishedRecords, ...legacyData } = cache;
-      return { ...cache, data: legacyData, finishedRecords: finishedRecords || [] };
+      const { dateFrom, dateTo, fetchedAt, ...legacyData } = cache;
+      return { ...cache, data: legacyData };
     }
     return cache;
   } catch (error) {
@@ -2290,8 +2190,7 @@ async function fetchFootballDataScores({ force = false } = {}) {
     const parsed = event ? parseFootballDataScore(event) : null;
     if (parsed) matched[match.id] = parsed;
   });
-  const finishedRecords = events.map(parseFootballDataFinishedRecord).filter(Boolean);
-  writeFootballDataCache(range, { data: matched, finishedRecords });
+  writeFootballDataCache(range, { data: matched });
   return matched;
 }
 
@@ -2329,15 +2228,13 @@ async function fetchScoreboardData() {
     const score = events.map((event) => extractScoreEvent(event, match)).find(Boolean);
     if (score) scoreData[match.id] = score;
   });
-  try {
-    const footballDataScores = await fetchFootballDataScores();
-    if (footballDataNeeded(scoreData) || Object.keys(footballDataScores).length) {
+  if (footballDataNeeded(scoreData)) {
+    try {
+      const footballDataScores = await fetchFootballDataScores();
       mergeFootballDataScores(scoreData, footballDataScores);
+    } catch (error) {
+      // Football-Data is a supplemental source; ESPN scores remain available on failure.
     }
-    state.scoreData = scoreData;
-    syncFootballDataHalfFullRecords();
-  } catch (error) {
-    // Football-Data is a supplemental source; ESPN scores remain available on failure.
   }
   state.scoreData = scoreData;
   return Object.keys(scoreData).length;
@@ -3441,7 +3338,6 @@ function renderAnalysis() {
 
 function renderRecords() {
   const recordsGrid = $("#recordsGrid");
-  syncFootballDataHalfFullRecords();
   recordsGrid.style.setProperty("--record-count", state.records.length);
   if (!state.records.length) {
     recordsGrid.innerHTML = `<div class="empty">暂无赛后记录。先完成一场推演，等比赛结束后在上方回填比分与验证状态。</div>`;
