@@ -710,6 +710,7 @@ const state = {
   selectedId: null,
   activeTab: "data",
   modalScrollY: 0,
+  deductionRunId: 0,
   liveData: {},
   scoreData: {},
   oddsData: {},
@@ -3297,8 +3298,17 @@ function selectMatch(id) {
   render();
 }
 
-function setModal(open) {
+function cancelActiveDeduction() {
+  state.deductionRunId += 1;
+}
+
+function isDeductionActive(runId) {
+  return runId === state.deductionRunId && $("#oracleModal")?.classList.contains("is-open");
+}
+
+function setModal(open, options = {}) {
   const modal = $("#oracleModal");
+  if (!open && options.cancel !== false) cancelActiveDeduction();
   modal.classList.toggle("is-open", open);
   modal.setAttribute("aria-hidden", open ? "false" : "true");
   if (open) {
@@ -3343,10 +3353,11 @@ function slowScrollTo(element, targetTop, duration = 620) {
   requestAnimationFrame(frame);
 }
 
-async function typeInto(element, text, delay = 14) {
+async function typeInto(element, text, delay = 14, runId = state.deductionRunId) {
   element.textContent = "";
   element.classList.remove("is-typed");
   for (const char of text) {
+    if (!isDeductionActive(runId)) return false;
     element.textContent += char;
     if (!char.trim()) continue;
     const pause = char === "。" || char === "！" || char === "？"
@@ -3360,10 +3371,12 @@ async function typeInto(element, text, delay = 14) {
             : delay;
     await activeSleep(pause);
   }
+  if (!isDeductionActive(runId)) return false;
   element.classList.add("is-typed");
+  return true;
 }
 
-async function runThinkingPrelude(match) {
+async function runThinkingPrelude(match, runId) {
   const thoughts = [
     "正在核对赛程时间、球场与北京时间...",
     "正在整理球队实力、近期状态和历史表现...",
@@ -3378,28 +3391,35 @@ async function runThinkingPrelude(match) {
   `;
   const line = $("#thinkingLine");
   for (let index = 0; index < thoughts.length; index += 1) {
+    if (!isDeductionActive(runId)) return false;
     $("#modalProgressBar").style.width = `${8 + index * 4}%`;
     line.classList.remove("is-switching");
     scrollModalToBottom();
-    await typeInto(line, thoughts[index], 24);
+    const typed = await typeInto(line, thoughts[index], 24, runId);
+    if (!typed || !isDeductionActive(runId)) return false;
     await activeSleep(300);
     if (index < thoughts.length - 1) {
+      if (!isDeductionActive(runId)) return false;
       line.classList.add("is-switching");
       await activeSleep(330);
     }
   }
+  if (!isDeductionActive(runId)) return false;
   line.classList.add("is-done");
   await activeSleep(300);
+  return isDeductionActive(runId);
 }
 
 async function runLiveDeduction(id) {
+  cancelActiveDeduction();
+  const runId = state.deductionRunId;
   state.selectedId = id;
   const match = selectedMatch();
   if (matchPhase(match) !== "upcoming" || state.revealedPredictions[match.id]) {
     render();
     return;
   }
-  setModal(true);
+  setModal(true, { cancel: false });
   $("#modalSteps").innerHTML = "";
   $("#modalResult").classList.remove("is-visible");
   $("#modalResult").innerHTML = "";
@@ -3409,23 +3429,29 @@ async function runLiveDeduction(id) {
 
   const liveDataPromise = fetchWeather(match)
     .then((live) => {
+      if (!isDeductionActive(runId)) return;
       state.liveData[match.id] = live;
       state.liveStatus = "已更新";
     })
     .catch(() => {
+      if (!isDeductionActive(runId)) return;
       state.liveData[match.id] = fallbackLive(match);
       state.liveStatus = "降级因子";
     });
 
-  await runThinkingPrelude(match);
+  const thinkingDone = await runThinkingPrelude(match, runId);
+  if (!thinkingDone || !isDeductionActive(runId)) return;
   await liveDataPromise;
+  if (!isDeductionActive(runId)) return;
   state.lastUpdated = new Date();
 
   const prediction = derivePrediction(match);
   const steps = processSteps(match, prediction);
+  if (!isDeductionActive(runId)) return;
   $("#modalSteps").innerHTML = "";
 
   for (let index = 0; index < steps.length; index += 1) {
+    if (!isDeductionActive(runId)) return;
     const [title, body] = steps[index];
     const isFinal = index === steps.length - 1;
     const stepId = `deduction-step-${index}`;
@@ -3435,10 +3461,12 @@ async function runLiveDeduction(id) {
     );
     $("#modalProgressBar").style.width = `${round(((index + 1) / steps.length) * 100)}%`;
     scrollModalToBottom();
-    await typeInto(document.getElementById(stepId), body, isFinal ? 17 : 19);
+    const typed = await typeInto(document.getElementById(stepId), body, isFinal ? 17 : 19, runId);
+    if (!typed || !isDeductionActive(runId)) return;
     await activeSleep(isFinal ? 420 : 480);
   }
 
+  if (!isDeductionActive(runId)) return;
   $("#modalResult").innerHTML = `
     <strong>最终推演：${predictionFullResultText(match, prediction)}</strong>
     <span>${prediction.trend} 风险提示：${prediction.risk}</span>
@@ -3501,6 +3529,7 @@ async function runLiveDeduction(id) {
     date: chinaDateKey(match.beijingTime),
     savedAt: new Date().toISOString()
   };
+  if (!isDeductionActive(runId)) return;
   persistPredictions();
   scrollModalToBottom();
   render();
