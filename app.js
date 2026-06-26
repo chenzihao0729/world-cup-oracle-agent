@@ -3405,6 +3405,12 @@ function renderAnalysis() {
 }
 
 function schedulePanelHeightSync() {
+  const panel = document.querySelector(".match-panel");
+  const list = document.querySelector(".match-list");
+  if (panel && list) {
+    panel.style.height = "";
+    list.style.removeProperty("--match-list-height");
+  }
   requestAnimationFrame(() => {
     const panel = document.querySelector(".match-panel");
     const list = document.querySelector(".match-list");
