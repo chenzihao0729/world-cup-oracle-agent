@@ -1718,42 +1718,80 @@ function reviewConclusion(match, revealed, status) {
   const predictedTotal = predictedScores.length ? predictedScores.reduce((sum, item) => sum + item.total, 0) / predictedScores.length : null;
   const totalGap = actualScore && predictedTotal != null ? actualScore.total - predictedTotal : 0;
   const bothScorePredicted = predictedScores.some((item) => item.bothScore);
+  const predictedLabel = resultPickLabel(match, revealed);
+  const actualLabel = actualResultLabel(match);
   const halfFullActual = actualHalfFull(match);
   const halfFullPredicted = halfFullBase(revealed?.halfFull);
   const halfFullStatus = evaluateHalfFull(match, revealed);
   const halfScore = actualHalfScoreText(match);
+  const tone = stableIndex(`${match.id}-${status}-${scoreText}`, 3);
   const points = [];
 
-  points.push(status === "命中"
-    ? `胜平负方向命中：赛前倾向「${resultPickLabel(match, revealed)}」，实际为「${actualResultLabel(match)}」`
-    : `胜平负方向失准：赛前倾向「${resultPickLabel(match, revealed)}」，实际为「${actualResultLabel(match)}」`);
+  const directionSentences = status === "命中"
+    ? [
+      `方向判断成立，赛前「${predictedLabel}」与实际「${actualLabel}」一致`,
+      `胜平负主线命中，模型对「${actualLabel}」的倾向捕捉有效`,
+      `赛果方向对齐：推演给出「${predictedLabel}」，落点为「${actualLabel}」`
+    ]
+    : [
+      `方向出现偏差，推演「${predictedLabel}」未落到实际「${actualLabel}」`,
+      `胜平负主线失准，本场真实走势偏向「${actualLabel}」`,
+      `赛果方向需要回调：赛前看「${predictedLabel}」，实际打出「${actualLabel}」`
+    ];
+  points.push(directionSentences[tone]);
 
   if (scoreHit) {
-    points.push(`比分候选覆盖真实比分「${scoreText}」，比分分布可保留当前权重`);
+    points.push([
+      `比分候选覆盖「${scoreText}」`,
+      `比分区间命中真实比分「${scoreText}」`,
+      `候选比分包含「${scoreText}」，进球分布偏差较小`
+    ][tone]);
   } else if (actualScore && predictedScores.length) {
     const totalText = Math.abs(totalGap) < 0.35
-      ? "总进球判断接近"
+      ? "总进球接近"
       : totalGap > 0
-        ? `真实总进球高出模型均值约 ${Math.abs(totalGap).toFixed(1)} 球`
-        : `真实总进球低于模型均值约 ${Math.abs(totalGap).toFixed(1)} 球`;
+        ? `实际进球比模型均值多约 ${Math.abs(totalGap).toFixed(1)} 球`
+        : `实际进球比模型均值少约 ${Math.abs(totalGap).toFixed(1)} 球`;
     const bothScoreText = actualScore.bothScore === bothScorePredicted
-      ? "双方进球判断一致"
+      ? "双方进球判断同步"
       : actualScore.bothScore
-        ? "模型低估了双方都有进球的概率"
-        : "模型高估了破门开放度";
+        ? "低估了互有进球概率"
+        : "高估了比赛开放度";
     points.push(`比分未覆盖「${scoreText}」，${totalText}，${bothScoreText}`);
   }
 
   if (halfFullActual) {
-    points.push(`半全场赛前「${halfFullPredicted || "未记录"}」，真实「${halfFullActual}」${halfScore ? `（半场 ${halfScore}）` : ""}，验证为${halfFullStatus || "待定"}`);
+    const halfStatusText = halfFullStatus === "命中"
+      ? "半场节奏判断有效"
+      : halfFullStatus === "失准"
+        ? "半场节奏需回调"
+        : "半场节奏待继续观察";
+    points.push(`半全场：赛前「${halfFullPredicted || "未记录"}」，真实「${halfFullActual}」${halfScore ? `（${halfScore}）` : ""}，${halfStatusText}`);
   } else {
-    points.push("半场比分暂未回填，半全场节奏暂不参与本次校准");
+    points.push("半场比分未回填，暂不校准半全场节奏");
   }
 
-  const adjustment = status === "命中"
-    ? "后续模型会小幅强化本场命中的方向信号，并用比分偏差微调总进球与双方进球权重。"
-    : "后续模型会降低本次偏离方向的权重，并优先校准冷门风险、总进球区间与半场节奏。";
-  return `复盘结论：${points.join("；")}。${adjustment}`;
+  const adjustments = status === "命中"
+    ? [
+      "后续保留方向权重，微调比分分布。",
+      "方向信号继续保留，进球模型按偏差小幅修正。",
+      "本场作为正样本，主要校准比分细节。"
+    ]
+    : [
+      "后续降低偏离方向权重，抬高冷门与平局保护。",
+      "模型将回调方向信号，并重估总进球区间。",
+      "本场作为反例样本，优先修正节奏与冷门风险。"
+    ];
+  return `${points.join("；")}。${adjustments[tone]}`;
+}
+
+function stableIndex(value, modulo) {
+  const text = String(value || "");
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  }
+  return modulo ? hash % modulo : 0;
 }
 
 function wdlToEdge(wdl) {
@@ -3413,10 +3451,14 @@ function renderRecordCard(record) {
           <span>${escapeHtml(comparison.actual || record.result || "待回填")}</span>
         </div>
       </div>
-      ${record.conclusion ? `<div class="record-review">${escapeHtml(record.conclusion)}</div>` : ""}
+      ${record.conclusion ? `<div class="record-review">${escapeHtml(cleanReviewConclusion(record.conclusion))}</div>` : ""}
       <time>${escapeHtml(record.savedAt)}</time>
     </article>
   `;
+}
+
+function cleanReviewConclusion(value) {
+  return String(value || "").replace(/^复盘结论[:：]\s*/, "");
 }
 
 function recordComparison(record) {
@@ -3474,7 +3516,7 @@ function buildLegacyReviewConclusion(record, predicted, actual, status) {
     details.push(scoreHit ? `真实比分「${score}」落入候选比分` : `真实比分「${score}」未被候选比分覆盖`);
   }
   details.push(status === "命中" ? "后续保留本场方向信号，主要微调比分分布" : "后续降低偏离方向权重，并校准冷门与进球区间");
-  return `复盘结论：${details.join("；")}。`;
+  return `${details.join("；")}。`;
 }
 
 function persistRecords() {

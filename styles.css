@@ -1104,6 +1104,8 @@ h1 {
   width: 100%;
   box-sizing: border-box;
   padding: 11px 12px;
+  font-size: 13px;
+  line-height: 1.55;
   border: 1px solid rgba(255, 220, 115, 0.14);
   border-radius: 7px;
   background: rgba(255, 220, 115, 0.055);
