@@ -660,6 +660,44 @@ const defaultCalibration = {
   learnedMatches: {}
 };
 
+const postMatchReviewSamples20260626 = [
+  { home: "科特迪瓦", away: "库拉索", actualWdl: "胜", score: "2-0", note: "强侧边路与身体对抗兑现，弱侧破门能力不足" },
+  { home: "厄瓜多尔", away: "德国", actualWdl: "胜", score: "2-1", note: "热门方防线失误与转换防守暴露，胜方仍有丢球" },
+  { home: "日本", away: "瑞典", actualWdl: "平", score: "1-1", note: "技术控制与高空冲击抵消，平局与双方进球同时出现" },
+  { home: "荷兰", away: "突尼斯", actualWdl: "胜", score: "3-1", note: "明星前场效率拉高总进球，胜方未能零封" },
+  { home: "巴拉圭", away: "澳大利亚", actualWdl: "平", score: "0-0", note: "低节奏与高对抗压低射正质量，平局不能被忽略" },
+  { home: "土耳其", away: "美国", actualWdl: "胜", score: "3-2", note: "主攻爆点带动开放比分，强势方也承受反击丢球" }
+];
+
+const starPlayerProfiles = {
+  阿根廷: { attack: 94, creation: 92, finishing: 91, defense: 64, influence: 96, depth: 83, label: "梅西体系余威与前场创造力" },
+  法国: { attack: 96, creation: 90, finishing: 95, defense: 74, influence: 97, depth: 90, label: "姆巴佩级爆点与豪门阵容厚度" },
+  巴西: { attack: 94, creation: 91, finishing: 90, defense: 70, influence: 95, depth: 88, label: "维尼修斯/罗德里戈级边路爆点" },
+  英格兰: { attack: 91, creation: 88, finishing: 91, defense: 78, influence: 92, depth: 89, label: "凯恩/贝林厄姆级核心轴线" },
+  葡萄牙: { attack: 90, creation: 88, finishing: 90, defense: 72, influence: 91, depth: 86, label: "B费/莱奥级创造与终结" },
+  荷兰: { attack: 86, creation: 84, finishing: 84, defense: 84, influence: 87, depth: 82, label: "范戴克级防线统领与前场冲击" },
+  德国: { attack: 87, creation: 89, finishing: 84, defense: 78, influence: 88, depth: 86, label: "穆西亚拉/维尔茨级肋部创造" },
+  西班牙: { attack: 86, creation: 91, finishing: 82, defense: 80, influence: 88, depth: 87, label: "亚马尔/佩德里级控创核心" },
+  比利时: { attack: 86, creation: 87, finishing: 85, defense: 70, influence: 86, depth: 78, label: "德布劳内体系创造力" },
+  克罗地亚: { attack: 80, creation: 84, finishing: 78, defense: 77, influence: 83, depth: 75, label: "中场控节奏核心" },
+  哥伦比亚: { attack: 84, creation: 83, finishing: 82, defense: 72, influence: 84, depth: 77, label: "J罗/迪亚斯级前场连接" },
+  墨西哥: { attack: 80, creation: 78, finishing: 78, defense: 76, influence: 80, depth: 76, label: "主场核心与边路速度" },
+  美国: { attack: 82, creation: 81, finishing: 79, defense: 73, influence: 81, depth: 78, label: "普利西奇级边路推进" },
+  日本: { attack: 82, creation: 84, finishing: 78, defense: 78, influence: 82, depth: 80, label: "三笘薰/久保级技术爆点" },
+  韩国: { attack: 81, creation: 79, finishing: 82, defense: 74, influence: 82, depth: 75, label: "孙兴慜级转换终结" },
+  摩洛哥: { attack: 80, creation: 81, finishing: 77, defense: 82, influence: 81, depth: 77, label: "阿什拉夫级边翼推进" },
+  瑞士: { attack: 76, creation: 77, finishing: 75, defense: 80, influence: 77, depth: 76, label: "中后场稳定核心" },
+  塞内加尔: { attack: 80, creation: 77, finishing: 80, defense: 79, influence: 80, depth: 76, label: "前场个人能力与身体优势" },
+  科特迪瓦: { attack: 79, creation: 76, finishing: 79, defense: 75, influence: 78, depth: 74, label: "边锋爆点与身体冲击" },
+  厄瓜多尔: { attack: 78, creation: 76, finishing: 77, defense: 78, influence: 77, depth: 74, label: "中场覆盖与转换冲击" },
+  土耳其: { attack: 82, creation: 83, finishing: 80, defense: 72, influence: 82, depth: 76, label: "恰尔汗奥卢/居莱尔级创造" },
+  瑞典: { attack: 77, creation: 75, finishing: 78, defense: 78, influence: 76, depth: 74, label: "高点与定位球核心" },
+  澳大利亚: { attack: 72, creation: 70, finishing: 72, defense: 76, influence: 72, depth: 70, label: "高对抗与定位球" },
+  巴拉圭: { attack: 73, creation: 70, finishing: 73, defense: 77, influence: 73, depth: 70, label: "硬度与防守纪律" },
+  突尼斯: { attack: 70, creation: 69, finishing: 69, defense: 74, influence: 70, depth: 68, label: "防守纪律与反击点" },
+  库拉索: { attack: 66, creation: 65, finishing: 65, defense: 68, influence: 64, depth: 62, label: "个人能力有限，依赖整体防守" }
+};
+
 const ODDS_CACHE_KEY = "oracle-odds-cache";
 const ODDS_USAGE_KEY = "oracle-odds-usage";
 const ODDS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -2105,6 +2143,7 @@ function scoreModel(match, live) {
   const calibration = state.calibration;
   const market = match.market;
   const timeSlot = earthlyHour(match.localTime);
+  const star = starPlayerFactor(match);
   const rankEdge = clamp((match.away.fifaRank - match.home.fifaRank) * 0.45, -18, 18);
   const strengthEdge = (match.home.strength - match.away.strength) * 0.9 * calibration.strengthWeight;
   const formEdge = (match.home.form - match.away.form) * 0.55 * calibration.formWeight;
@@ -2129,10 +2168,11 @@ function scoreModel(match, live) {
     weatherDrag +
     altitudeEdge +
     earthlyHourEdge +
+    star.edge +
     calibration.homeEdgeBias;
 
   const drawIndex = clamp(
-    48 - Math.abs(homeEdge) * 0.9 + Math.min(match.home.defense, match.away.defense) * 0.18 + live.precipitation * 0.05 + (timeSlot.bias < 0 ? 3 : 0) + calibration.drawBias,
+    48 - Math.abs(homeEdge) * 0.9 + Math.min(match.home.defense, match.away.defense) * 0.18 + live.precipitation * 0.05 + (timeSlot.bias < 0 ? 3 : 0) + star.drawLift + calibration.drawBias,
     18,
     58
   );
@@ -2144,6 +2184,7 @@ function scoreModel(match, live) {
       Math.abs(match.home.fatigue - match.away.fatigue) * 0.16 +
       Math.abs(restEdge) * 0.18 +
       Math.max(0, live.windSpeed - 18) * 0.05 +
+      star.upsetLift +
       calibration.upsetBias,
     18,
     84
@@ -2162,6 +2203,7 @@ function scoreModel(match, live) {
     weatherDrag,
     altitudeEdge,
     earthlyHourEdge,
+    star,
     timeSlot,
     homeEdge,
     drawIndex,
@@ -2181,6 +2223,43 @@ function formatMarketValue(valueInMillionEuro) {
     return `${text.replace(/\.0$/, "")}亿欧元`;
   }
   return `${round(valueInMillionEuro * 100)}万欧元`;
+}
+
+function teamStarProfile(team) {
+  const profile = starPlayerProfiles[team.name];
+  if (profile) return profile;
+  const attack = clamp(round(team.attack * 0.84 + team.experience * 0.12), 52, 84);
+  const creation = clamp(round(team.attack * 0.74 + team.form * 0.18 + team.experience * 0.08), 52, 84);
+  const finishing = clamp(round(team.attack * 0.78 + team.form * 0.14 + Math.max(0, 80 - team.fifaRank) * 0.05), 52, 84);
+  const defense = clamp(round(team.defense * 0.78 + team.experience * 0.16), 52, 84);
+  const influence = clamp(round((attack + creation + finishing + defense) / 4 + Math.max(0, 70 - team.fifaRank) * 0.08), 52, 84);
+  const depth = clamp(round(team.strength * 0.58 + team.experience * 0.24 + team.form * 0.12), 52, 84);
+  return { attack, creation, finishing, defense, influence, depth, label: "阵容核心能力估算" };
+}
+
+function starPlayerFactor(match) {
+  const home = teamStarProfile(match.home);
+  const away = teamStarProfile(match.away);
+  const attackEdge = (home.attack + home.creation * 0.72 + home.finishing * 0.88) - (away.attack + away.creation * 0.72 + away.finishing * 0.88);
+  const controlEdge = (home.influence + home.depth * 0.42 + home.defense * 0.26) - (away.influence + away.depth * 0.42 + away.defense * 0.26);
+  const edge = clamp(attackEdge * 0.045 + controlEdge * 0.035, -5.6, 5.6);
+  const chanceCreation = clamp(((home.creation + away.creation) / 2 - 72) / 20, -0.32, 0.42);
+  const finishingLift = clamp(((home.finishing + away.finishing) / 2 - 72) / 28, -0.22, 0.36);
+  const bttsLift = clamp(((home.attack + away.attack) - (home.defense + away.defense)) / 120 + chanceCreation * 0.32, -0.12, 0.2);
+  const drawLift = clamp(2.8 - Math.abs(edge) * 0.42 + Math.min(home.defense, away.defense) * 0.018 - Math.max(home.finishing, away.finishing) * 0.018, -2.8, 3.6);
+  const upsetLift = clamp(Math.max(0, 88 - Math.max(home.depth, away.depth)) * 0.06 + Math.max(0, Math.min(home.influence, away.influence) - 78) * 0.05, 0, 3.2);
+  return {
+    home,
+    away,
+    edge,
+    chanceCreation,
+    finishingLift,
+    bttsLift,
+    drawLift,
+    upsetLift,
+    summary: `${match.home.name}：${home.label}；${match.away.name}：${away.label}`,
+    source: "明星球员/核心阵容因子"
+  };
 }
 
 function leagueCompetitiveness(team) {
@@ -2262,6 +2341,7 @@ function deriveAnalystModel(match, live, baseModel) {
   const awayProfile = recentProfile(match.away, "away", match);
   const homeTactics = tacticalProfile(match.home);
   const awayTactics = tacticalProfile(match.away);
+  const star = baseModel.star || starPlayerFactor(match);
   const homeValue = teamMarketValueEstimate(match.home);
   const awayValue = teamMarketValueEstimate(match.away);
   const homeLeague = leagueCompetitiveness(match.home);
@@ -2284,13 +2364,14 @@ function deriveAnalystModel(match, live, baseModel) {
     (match.away.attack - match.home.defense) * 0.12 +
     (homeTactics.style === "高位逼抢" && awayTactics.style === "低位守反" ? 1.6 : 0) +
     (awayTactics.style === "高位逼抢" && homeTactics.style === "低位守反" ? -1.6 : 0);
+  const starEdge = star.edge * 1.18;
   const externalEdge =
     baseModel.restEdge * 0.72 +
     baseModel.travelEdge * 0.45 +
     baseModel.weatherDrag * 0.55 +
     baseModel.altitudeEdge * 0.7;
   const marketLean = baseModel.marketEdge * 0.36;
-  const analystEdge = clamp(baselineEdge + recentEdge + tacticalEdge + externalEdge + marketLean, -24, 24);
+  const analystEdge = clamp(baselineEdge + recentEdge + tacticalEdge + starEdge + externalEdge + marketLean, -24, 24);
   const drawPressure = clamp(
     30 +
       Math.max(0, 9 - Math.abs(analystEdge)) * 1.35 +
@@ -2316,12 +2397,13 @@ function deriveAnalystModel(match, live, baseModel) {
       (homeProfile.xg + awayProfile.xg - 2.1) * 0.13 +
       (homeProfile.goalsAgainst + awayProfile.goalsAgainst - 2.1) * 0.1 +
       (100 - homeProfile.cleanSheetRate - awayProfile.cleanSheetRate) / 260 +
+      star.bttsLift +
       state.calibration.bothTeamsScoreBias +
       state.calibration.winnerConcedeBias * 0.55,
     0.08,
     0.76
   );
-  const totalGoals = clamp(Number((homeProfile.xg * 0.47 + awayProfile.xg * 0.47 + 0.35 + state.calibration.totalGoalsBias - (live.windSpeed > 18 ? 0.16 : 0) - (live.precipitation > 40 ? 0.18 : 0)).toFixed(2)), 1.3, 4.6);
+  const totalGoals = clamp(Number((homeProfile.xg * 0.47 + awayProfile.xg * 0.47 + 0.35 + star.chanceCreation * 0.24 + star.finishingLift * 0.3 + state.calibration.totalGoalsBias - (live.windSpeed > 18 ? 0.16 : 0) - (live.precipitation > 40 ? 0.18 : 0)).toFixed(2)), 1.3, 4.6);
   let homeGoals = clamp(round(1.05 + (match.home.attack - match.away.defense) / 34 + analystEdge / 42 + totalGoals / 8 + (bothTeamsScoreLean > 0.52 ? 0.12 : 0)), 0, 5);
   let awayGoals = clamp(round(0.95 + (match.away.attack - match.home.defense) / 34 - analystEdge / 42 + totalGoals / 8 + (bothTeamsScoreLean > 0.52 ? 0.12 : 0)), 0, 5);
   if (wdl === "胜" && homeGoals <= awayGoals) homeGoals = awayGoals + 1;
@@ -2343,6 +2425,7 @@ function deriveAnalystModel(match, live, baseModel) {
     `实力基线 ${match.home.name} ${round(baselineEdge) >= 0 ? "占优" : "受压"}：排名、身价代理值与联赛竞争力合计边际 ${round(baselineEdge)}`,
     `近10场模型 ${homeProfile.record} 对 ${awayProfile.record}，xG ${homeProfile.xg}/${awayProfile.xg}，趋势 ${homeProfile.trend}/${awayProfile.trend}`,
     `战术对位 ${homeTactics.style}(${homeTactics.formation}) vs ${awayTactics.style}(${awayTactics.formation})，节奏 ${homeTactics.tempo}/${awayTactics.tempo}`,
+    `明星球员因子：${star.summary}，核心边际 ${round(starEdge)}`,
     `外部因素：${venueName(match)}，天气与旅途合计修正 ${round(externalEdge)}，${injuryImpact}`
   ];
   return {
@@ -2350,6 +2433,8 @@ function deriveAnalystModel(match, live, baseModel) {
     baselineEdge,
     recentEdge,
     tacticalEdge,
+    starEdge,
+    star,
     externalEdge,
     marketLean,
     tacticalMismatch,
@@ -2550,14 +2635,22 @@ function wdlFromOutcomeText(text) {
 }
 
 function reviewLearningProfile() {
+  const sampleRows = postMatchReviewSamples20260626.map((sample) => {
+    const score = scoreMeta(parseScoreText(sample.score));
+    const predictedScores = [];
+    return { record: { status: "赛后样本" }, score, predicted: "", actual: sample.actualWdl === "平" ? "平局" : `${sample.actualWdl === "胜" ? sample.home : sample.away}胜`, predictedScores, sample };
+  }).filter((item) => item.score);
   const profile = {
-    samples: 0,
+    samples: sampleRows.length,
     hitRate: 0.5,
     drawRate: 0.26,
     bothScoreRate: 0.44,
     avgTotalGoals: 2.45,
     scoreMissRate: 0.5,
-    favoriteMissRate: 0.24
+    favoriteMissRate: 0.24,
+    winnerConcedeRate: 0.34,
+    upsetWinRate: 0.18,
+    latestReviewNote: "已纳入北京时间 2026-06-26 凌晨 6 场完赛样本"
   };
   const rows = state.records.map(recordViewModel).map((record) => {
     const score = scoreMeta(parseScoreText(record.result || record.trend));
@@ -2566,15 +2659,19 @@ function reviewLearningProfile() {
     const predictedScores = String(record.trend || "").match(/赛前输出[:：][^；。]*?(\d+\s*-\s*\d+(?:\/\d+\s*-\s*\d+)?)/)?.[1]?.split("/") || [];
     return { record, score, predicted, actual, predictedScores };
   }).filter((item) => item.score && item.actual);
-  if (!rows.length) return profile;
+  const learningRows = [...sampleRows, ...rows];
+  if (!learningRows.length) return profile;
 
-  profile.samples = rows.length;
-  profile.hitRate = rows.filter((item) => item.record.status === "命中" || item.predicted === item.actual).length / rows.length;
-  profile.drawRate = rows.filter((item) => item.actual === "平局").length / rows.length;
-  profile.bothScoreRate = rows.filter((item) => item.score.bothScore).length / rows.length;
-  profile.avgTotalGoals = rows.reduce((sum, item) => sum + item.score.total, 0) / rows.length;
-  profile.scoreMissRate = rows.filter((item) => !item.predictedScores.includes(`${item.score.home}-${item.score.away}`)).length / rows.length;
-  profile.favoriteMissRate = rows.filter((item) => item.predicted && item.actual && item.predicted !== item.actual && item.predicted !== "平局").length / rows.length;
+  profile.samples = learningRows.length;
+  const userRows = rows.length ? rows : [];
+  profile.hitRate = userRows.length ? userRows.filter((item) => item.record.status === "命中" || item.predicted === item.actual).length / userRows.length : 0.5;
+  profile.drawRate = learningRows.filter((item) => item.actual === "平局").length / learningRows.length;
+  profile.bothScoreRate = learningRows.filter((item) => item.score.bothScore).length / learningRows.length;
+  profile.avgTotalGoals = learningRows.reduce((sum, item) => sum + item.score.total, 0) / learningRows.length;
+  profile.scoreMissRate = userRows.length ? userRows.filter((item) => !item.predictedScores.includes(`${item.score.home}-${item.score.away}`)).length / userRows.length : 0.5;
+  profile.favoriteMissRate = userRows.length ? userRows.filter((item) => item.predicted && item.actual && item.predicted !== item.actual && item.predicted !== "平局").length / userRows.length : 0.24;
+  profile.winnerConcedeRate = learningRows.filter((item) => item.score.winnerConceded).length / learningRows.length;
+  profile.upsetWinRate = sampleRows.filter((item) => item.sample?.note?.includes("热门方") || item.sample?.note?.includes("爆冷")).length / Math.max(1, sampleRows.length);
   return profile;
 }
 
@@ -2613,7 +2710,8 @@ function derivePredictionCore(match) {
   const oldEdge = model.homeEdge + oracle.oracleBias * state.calibration.oracleWeight;
   const analystShare = clamp(state.calibration.analystWeight, 0.72, 1.28);
   const kellyShare = clamp(state.calibration.kellyWeight, 0.75, 1.25);
-  const finalEdge = oldEdge * 0.66 + analyst.analystEdge * 0.26 * analystShare + kelly.edge * 0.08 * kellyShare;
+  const starShare = clamp(0.9 + Math.max(0, analyst.star.home.influence + analyst.star.away.influence - 160) / 120, 0.9, 1.18);
+  const finalEdge = oldEdge * 0.62 + analyst.analystEdge * 0.25 * analystShare + kelly.edge * 0.08 * kellyShare + analyst.star.edge * 0.05 * starShare;
   const drawPressure = model.drawIndex + kelly.drawBias + (Math.abs(finalEdge) < 5 ? 10 : 0);
   const drawCandidateLean = clamp(
     drawPressure +
@@ -2622,7 +2720,8 @@ function derivePredictionCore(match) {
       Math.max(0, 7 - Math.abs(analyst.analystEdge)) * 0.8 +
       state.calibration.drawBias * 1.4 +
       (learning.drawRate - 0.26) * 18 +
-      (learning.favoriteMissRate - 0.24) * 8,
+      (learning.favoriteMissRate - 0.24) * 8 -
+      Math.abs(analyst.star.edge) * 0.45,
     0,
     100
   );
@@ -2636,13 +2735,16 @@ function derivePredictionCore(match) {
       state.calibration.bothTeamsScoreBias * 0.55 +
       state.calibration.winnerConcedeBias * 0.65 +
       (analyst.totalGoals - 2.2) * 0.08 +
-      (learning.bothScoreRate - 0.44) * 0.28,
+      (learning.bothScoreRate - 0.44) * 0.28 +
+      (learning.winnerConcedeRate - 0.34) * 0.22 +
+      analyst.star.bttsLift * 0.55,
     0.08,
     0.82
   );
-  const learnedGoalShift = clamp((learning.avgTotalGoals - 2.45) * 0.18 + (learning.scoreMissRate - 0.5) * 0.08, -0.18, 0.22);
-  const baseHomeGoals = 1.05 + (match.home.attack - match.away.defense) / 32 + finalEdge / 40 + (analyst.totalGoals + state.calibration.totalGoalsBias + learnedGoalShift) / 12;
-  const baseAwayGoals = 0.98 + (match.away.attack - match.home.defense) / 32 - finalEdge / 40 + (analyst.totalGoals + state.calibration.totalGoalsBias + learnedGoalShift) / 12;
+  const learnedGoalShift = clamp((learning.avgTotalGoals - 2.45) * 0.2 + (learning.scoreMissRate - 0.5) * 0.08, -0.18, 0.26);
+  const starGoalLift = analyst.star.chanceCreation * 0.14 + analyst.star.finishingLift * 0.18;
+  const baseHomeGoals = 1.05 + (match.home.attack - match.away.defense) / 32 + finalEdge / 40 + analyst.star.edge / 72 + (analyst.totalGoals + state.calibration.totalGoalsBias + learnedGoalShift + starGoalLift) / 12;
+  const baseAwayGoals = 0.98 + (match.away.attack - match.home.defense) / 32 - finalEdge / 40 - analyst.star.edge / 72 + (analyst.totalGoals + state.calibration.totalGoalsBias + learnedGoalShift + starGoalLift) / 12;
   const weatherGoalDrag = live.windSpeed > 18 || live.precipitation > 40 ? -0.25 : 0;
   const bttsLift = bothTeamsScoreLean > 0.48 ? 0.22 : bothTeamsScoreLean > 0.38 ? 0.12 : 0;
   let homeGoals = clamp(round(baseHomeGoals + weatherGoalDrag + bttsLift + (wdl === "胜" ? 0.35 : 0)), 0, 5);
@@ -2650,8 +2752,8 @@ function derivePredictionCore(match) {
 
   if (wdl === "胜" && homeGoals <= awayGoals) homeGoals = awayGoals + 1;
   if (wdl === "负" && awayGoals <= homeGoals) awayGoals = homeGoals + 1;
-  if (wdl === "胜" && awayGoals === 0 && bothTeamsScoreLean > 0.56 && homeGoals >= 2) awayGoals = 1;
-  if (wdl === "负" && homeGoals === 0 && bothTeamsScoreLean > 0.56 && awayGoals >= 2) homeGoals = 1;
+  if (wdl === "胜" && awayGoals === 0 && bothTeamsScoreLean > 0.5 && homeGoals >= 2) awayGoals = 1;
+  if (wdl === "负" && homeGoals === 0 && bothTeamsScoreLean > 0.5 && awayGoals >= 2) homeGoals = 1;
   if (wdl === "平") {
     const drawGoals = clamp(round((homeGoals + awayGoals) / 2), 0, 2);
     homeGoals = drawGoals;
@@ -2777,6 +2879,12 @@ function renderScores(prediction) {
       source: "历史交锋/心理倾向"
     },
     {
+      label: "明星因子",
+      home: analyst.star.home.influence,
+      away: analyst.star.away.influence,
+      source: "核心球员/阵容深度"
+    },
+    {
       label: "战术模型",
       home: analyst.probabilities.home,
       away: analyst.probabilities.away,
@@ -2833,16 +2941,18 @@ function processSteps(match, prediction) {
     ["步骤 5", `战术实力基线：排名、身价代理值、联赛竞争力、主力框架和引援/青训质量折算为 ${round(analyst.baselineEdge)}；${match.home.name} 身价代理 ${formatMarketValue(analyst.homeValue)}，${match.away.name} ${formatMarketValue(analyst.awayValue)}。`],
     ["步骤 6", `近10场状态：${match.home.name} ${analyst.homeProfile.record}，进/失 ${analyst.homeProfile.goalsFor}/${analyst.homeProfile.goalsAgainst}，xG ${analyst.homeProfile.xg}；${match.away.name} ${analyst.awayProfile.record}，进/失 ${analyst.awayProfile.goalsFor}/${analyst.awayProfile.goalsAgainst}，xG ${analyst.awayProfile.xg}。`],
     ["步骤 7", `核心对比：${analyst.homeTactics.style} ${analyst.homeTactics.formation} 对 ${analyst.awayTactics.style} ${analyst.awayTactics.formation}，节奏 ${analyst.homeTactics.tempo}/${analyst.awayTactics.tempo}，战术边际 ${round(analyst.tacticalEdge)}。`],
-    ["步骤 8", `外部因素：场地 ${venueName(match)}，天气、旅途、休息、海拔合计 ${round(analyst.externalEdge)}；${analyst.injuryImpact}。`],
-    ["步骤 9", `战术数据模型：胜/平/负概率 ${analyst.probabilities.home}%/${analyst.probabilities.draw}%/${analyst.probabilities.away}%，总进球 ${analyst.totalGoals}，输出 ${predictionResultText(match, { wdl: analyst.wdl, scoreOptions: analyst.scoreOptions })}。`],
-    ["步骤 10", `盘口面：${market.source || "内置盘口因子"}，当前让步 ${market.current}，热度 ${market.heat}，盘口折算 ${round(model.marketEdge)}；冷门指数 ${round(model.upsetIndex)}。`],
-    ["步骤 11", `凯利公式：赔率 ${prediction.kelly.homeOdds}/${prediction.kelly.drawOdds}/${prediction.kelly.awayOdds}，Kelly 值 ${(prediction.kelly.homeKelly * 100).toFixed(1)}%/${(prediction.kelly.drawKelly * 100).toFixed(1)}%/${(prediction.kelly.awayKelly * 100).toFixed(1)}%，价值侧为「${prediction.kelly.best.label}」。`],
-    ["步骤 12", `球场面：旅途差 ${round(model.travelEdge)}，休息差 ${round(model.restEdge)}，天气修正 ${round(model.weatherDrag)}，海拔修正 ${round(model.altitudeEdge)}。`],
-    ["步骤 13", `六爻八卦：本卦「${oracle.mainHexagram}」（上${oracle.mainTrigrams.upper.name}下${oracle.mainTrigrams.lower.name}），世爻第 ${oracle.worldIndex} 爻，应爻第 ${oracle.responseIndex} 爻，动爻第 ${oracle.movingIndex} 爻。`],
-    ["步骤 14", `取象合参：用神取「${oracle.usefulGod}」，动爻六亲为「${oracle.movingRelative}」；${model.timeSlot.name}属${elementNames[oracle.timeElement]}，时辰扶抑世爻 ${round(oracle.timeToWorld)}，世应攻守 ${round(oracle.worldVsResponse)}。`],
-    ["步骤 15", `动变归并：动爻转化修正 ${round(oracle.movingLineScore)}，上下卦场势 ${round(oracle.trigramFieldEdge)}，变卦五行收束 ${round(oracle.changedElementShift)}，总卦象修正 ${round(oracle.oracleBias)}。`],
-    ["步骤 16", `多模型融合：旧模型边际 ${round(prediction.oldEdge)}，战术边际 ${round(analyst.analystEdge)}，Kelly 边际 ${round(prediction.kelly.edge)}，融合边际 ${round(prediction.finalEdge)}，平局压力 ${round(model.drawIndex + prediction.kelly.drawBias)}，平局候选 ${round(prediction.drawCandidateLean)}，置信度 ${prediction.confidence}%。`],
-    ["步骤 17", `推演结果：${predictionFullResultText(match, prediction)}。`]
+    ["步骤 8", `明星球员因子：${analyst.star.summary}；创造/终结修正 ${(analyst.star.chanceCreation + analyst.star.finishingLift).toFixed(2)}，明星边际 ${round(analyst.starEdge)}，用于修正破局能力、双方进球和胜方丢球概率。`],
+    ["步骤 9", `赛后复盘学习：${prediction.learning.latestReviewNote}，样本平局率 ${round(prediction.learning.drawRate * 100)}%，双方进球率 ${round(prediction.learning.bothScoreRate * 100)}%，胜方丢球率 ${round(prediction.learning.winnerConcedeRate * 100)}%，用于校准比分分布。`],
+    ["步骤 10", `外部因素：场地 ${venueName(match)}，天气、旅途、休息、海拔合计 ${round(analyst.externalEdge)}；${analyst.injuryImpact}。`],
+    ["步骤 11", `战术数据模型：胜/平/负概率 ${analyst.probabilities.home}%/${analyst.probabilities.draw}%/${analyst.probabilities.away}%，总进球 ${analyst.totalGoals}，输出 ${predictionResultText(match, { wdl: analyst.wdl, scoreOptions: analyst.scoreOptions })}。`],
+    ["步骤 12", `盘口面：${market.source || "内置盘口因子"}，当前让步 ${market.current}，热度 ${market.heat}，盘口折算 ${round(model.marketEdge)}；冷门指数 ${round(model.upsetIndex)}。`],
+    ["步骤 13", `凯利公式：赔率 ${prediction.kelly.homeOdds}/${prediction.kelly.drawOdds}/${prediction.kelly.awayOdds}，Kelly 值 ${(prediction.kelly.homeKelly * 100).toFixed(1)}%/${(prediction.kelly.drawKelly * 100).toFixed(1)}%/${(prediction.kelly.awayKelly * 100).toFixed(1)}%，价值侧为「${prediction.kelly.best.label}」。`],
+    ["步骤 14", `球场面：旅途差 ${round(model.travelEdge)}，休息差 ${round(model.restEdge)}，天气修正 ${round(model.weatherDrag)}，海拔修正 ${round(model.altitudeEdge)}。`],
+    ["步骤 15", `六爻八卦：本卦「${oracle.mainHexagram}」（上${oracle.mainTrigrams.upper.name}下${oracle.mainTrigrams.lower.name}），世爻第 ${oracle.worldIndex} 爻，应爻第 ${oracle.responseIndex} 爻，动爻第 ${oracle.movingIndex} 爻。`],
+    ["步骤 16", `取象合参：用神取「${oracle.usefulGod}」，动爻六亲为「${oracle.movingRelative}」；${model.timeSlot.name}属${elementNames[oracle.timeElement]}，时辰扶抑世爻 ${round(oracle.timeToWorld)}，世应攻守 ${round(oracle.worldVsResponse)}。`],
+    ["步骤 17", `动变归并：动爻转化修正 ${round(oracle.movingLineScore)}，上下卦场势 ${round(oracle.trigramFieldEdge)}，变卦五行收束 ${round(oracle.changedElementShift)}，总卦象修正 ${round(oracle.oracleBias)}。`],
+    ["步骤 18", `多模型融合：旧模型边际 ${round(prediction.oldEdge)}，战术边际 ${round(analyst.analystEdge)}，明星边际 ${round(analyst.star.edge)}，Kelly 边际 ${round(prediction.kelly.edge)}，融合边际 ${round(prediction.finalEdge)}，平局候选 ${round(prediction.drawCandidateLean)}，置信度 ${prediction.confidence}%。`],
+    ["步骤 19", `推演结果：${predictionFullResultText(match, prediction)}。`]
   ];
 }
 
@@ -2853,6 +2963,7 @@ function tabContent(match, prediction) {
   const dataItems = [
     `球队实力：${match.home.name} ${match.home.strength} vs ${match.away.name} ${match.away.strength}，排名与阵容深度共同折算。`,
     `实力基线：${match.home.name} 排名 ${match.home.fifaRank}、身价代理 ${formatMarketValue(analyst.homeValue)}、联赛竞争力 ${analyst.homeLeague}、引援/青训质量 ${analyst.homeRecruitment}；${match.away.name} 排名 ${match.away.fifaRank}、身价代理 ${formatMarketValue(analyst.awayValue)}、联赛竞争力 ${analyst.awayLeague}、引援/青训质量 ${analyst.awayRecruitment}。`,
+    `明星球员因子：${analyst.star.summary}；${match.home.name} 核心影响 ${analyst.star.home.influence}，${match.away.name} ${analyst.star.away.influence}，修正破局、双方进球和胜方丢球倾向。`,
     `战术数据模型：胜/平/负概率 ${analyst.probabilities.home}%/${analyst.probabilities.draw}%/${analyst.probabilities.away}%，首选/次选比分 ${analyst.scoreOptions.join("/")}，总进球 ${analyst.totalGoals}。`,
     `盘口波动：${market.source || "内置盘口因子"}，开盘 ${market.opening}，当前 ${market.current}，热度 ${market.heat}${market.homePrice ? `，胜平负欧赔 ${market.homePrice}/${market.drawPrice || "-"}/${market.awayPrice}` : ""}。`,
     `实时更新：天气来自在线接口；若接口失败，会降级为内置赛前因子并在页面标注来源。`,
