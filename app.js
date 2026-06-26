@@ -3346,19 +3346,39 @@ function renderRecords() {
 
   recordsGrid.innerHTML = state.records
     .map(recordViewModel)
-    .map(
-      (record) => `
-        <article class="record-card">
-          <strong>${record.match}</strong>
-          <span>${record.status} · ${record.result}</span>
-          ${record.halfFullActual ? `<small>半全场：真实 ${record.halfFullActual}${record.halfScore ? `（半场 ${record.halfScore}）` : ""}${record.halfFullPredicted ? `；赛前 ${record.halfFullPredicted}` : ""}${record.halfFullStatus ? `；${record.halfFullStatus}` : ""}${record.halfFullSource ? `；来源 ${record.halfFullSource}` : ""}</small>` : ""}
-          <small>${record.trend}</small>
-          ${record.conclusion ? `<small class="review-conclusion">${record.conclusion}</small>` : ""}
-          <small>${record.savedAt}</small>
-        </article>
-      `
-    )
+    .map(renderRecordCard)
     .join("");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;"
+  })[char]);
+}
+
+function renderRecordCard(record) {
+  const halfFullLine = record.halfFullActual
+    ? `真实 ${record.halfFullActual}${record.halfScore ? `（半场 ${record.halfScore}）` : ""}${record.halfFullPredicted ? `；赛前 ${record.halfFullPredicted}` : ""}${record.halfFullStatus ? `；${record.halfFullStatus}` : ""}${record.halfFullSource ? `；${record.halfFullSource}` : ""}`
+    : "";
+  return `
+    <article class="record-card">
+      <div class="record-card-head">
+        <strong>${escapeHtml(record.match)}</strong>
+        <em>${escapeHtml(record.status)}</em>
+      </div>
+      <div class="record-result">${escapeHtml(record.result)}</div>
+      <div class="record-detail-grid">
+        ${halfFullLine ? `<div><b>半全场</b><span>${escapeHtml(halfFullLine)}</span></div>` : ""}
+        <div><b>赛果对照</b><span>${escapeHtml(record.trend)}</span></div>
+      </div>
+      ${record.conclusion ? `<div class="record-review">${escapeHtml(record.conclusion)}</div>` : ""}
+      <time>${escapeHtml(record.savedAt)}</time>
+    </article>
+  `;
 }
 
 function recordViewModel(record) {

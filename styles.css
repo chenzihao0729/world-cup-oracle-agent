@@ -996,24 +996,90 @@ h1 {
 }
 
 .record-card {
-  padding: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 18px;
   border-radius: 8px;
 }
 
-.record-card strong,
-.record-card span,
-.record-card small {
-  display: block;
+.record-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.record-card span {
-  margin: 9px 0;
+.record-card-head strong {
+  min-width: 0;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.record-card-head em {
+  flex: 0 0 auto;
+  max-width: 46%;
+  padding: 4px 8px;
+  color: #16170d;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: center;
+  border-radius: 999px;
+  background: var(--gold);
+}
+
+.record-result {
+  padding-bottom: 12px;
   color: var(--gold);
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1.35;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.record-card small {
+.record-detail-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.record-detail-grid div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.record-detail-grid b {
+  color: rgba(255, 224, 112, 0.82);
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: nowrap;
+}
+
+.record-detail-grid span,
+.record-review,
+.record-card time {
   color: var(--muted);
   line-height: 1.6;
+}
+
+.record-detail-grid span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.record-review {
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 220, 115, 0.14);
+  border-radius: 7px;
+  background: rgba(255, 220, 115, 0.055);
+}
+
+.record-card time {
+  color: rgba(180, 194, 195, 0.72);
+  font-size: 12px;
 }
 
 .empty {
@@ -1439,6 +1505,21 @@ h1 {
 
   .record-card {
     padding: 14px;
+  }
+
+  .record-card-head {
+    display: grid;
+    gap: 8px;
+  }
+
+  .record-card-head em {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .record-detail-grid div {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .oracle-modal {
