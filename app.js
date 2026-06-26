@@ -3444,11 +3444,11 @@ function renderRecordCard(record) {
       <div class="record-comparison">
         <div>
           <b>推演结果</b>
-          <span>${escapeHtml(comparison.predicted || "未记录")}</span>
+          ${renderComparisonLines(comparison.predicted)}
         </div>
         <div>
           <b>实际赛果</b>
-          <span>${escapeHtml(comparison.actual || record.result || "待回填")}</span>
+          ${renderComparisonLines(comparison.actual || parseComparisonText(record.result))}
         </div>
       </div>
       ${record.conclusion ? `<div class="record-review">${escapeHtml(cleanReviewConclusion(record.conclusion))}</div>` : ""}
@@ -3461,10 +3461,33 @@ function cleanReviewConclusion(value) {
   return String(value || "").replace(/^复盘结论[:：]\s*/, "");
 }
 
+function renderComparisonLines(item) {
+  const value = typeof item === "string" ? parseComparisonText(item) : item;
+  const result = value?.result || "未记录";
+  const score = value?.score || "待回填";
+  const halfFull = value?.halfFull || "待回填";
+  return `
+    <ul>
+      <li>${escapeHtml(result)}</li>
+      <li>比分：${escapeHtml(score)}</li>
+      <li>半全场：${escapeHtml(halfFull)}</li>
+    </ul>
+  `;
+}
+
+function parseComparisonText(text) {
+  const source = String(text || "").trim();
+  if (!source) return { result: "", score: "", halfFull: "" };
+  const result = source.match(/^([^·；|｜]+)/)?.[1]?.trim() || "";
+  const score = source.match(/[·]\s*([^；|｜]+)/)?.[1]?.trim() || source.match(/(\d+\s*-\s*\d+(?:\/\d+\s*-\s*\d+)?)/)?.[1] || "";
+  const halfFull = source.match(/半全场\s*([胜平负]\/[胜平负])/)?.[1] || "";
+  return { result, score, halfFull };
+}
+
 function recordComparison(record) {
   return {
-    predicted: String(record.trend || "").match(/赛前输出[:：]\s*([^；。]+)/)?.[1] || "",
-    actual: String(record.trend || "").match(/真实赛果[:：]\s*([^。]+)/)?.[1] || ""
+    predicted: parseComparisonText(String(record.trend || "").match(/赛前输出[:：]\s*([^；。]+)/)?.[1] || ""),
+    actual: parseComparisonText(String(record.trend || "").match(/真实赛果[:：]\s*([^。]+)/)?.[1] || "")
   };
 }
 

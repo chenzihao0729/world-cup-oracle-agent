@@ -1094,9 +1094,20 @@ h1 {
   line-height: 1.2;
 }
 
-.record-comparison span {
+.record-comparison ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
   color: var(--muted);
-  line-height: 1.55;
+  line-height: 1.45;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.record-comparison li {
+  color: var(--muted);
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
