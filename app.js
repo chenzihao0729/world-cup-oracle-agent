@@ -707,6 +707,7 @@ const SCHEDULE_CACHE_KEY = "oracle-schedule-cache";
 const SCHEDULE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const SCHEDULE_LOOKAHEAD_DAYS = 35;
 const SPORTTERY_HALF_FULL_URL = "https://webapi.sporttery.cn/gateway/lottery/getFootBallDrawInfoV2.qry?isVerify=1&param=94,0;90,0;98,0";
+const SPORTTERY_HALF_FULL_DRAW_URL = "https://webapi.sporttery.cn/gateway/lottery/getFootBallDrawInfoByDrawNumV2.qry?isVerify=1&lotteryGameNum=98";
 
 const state = {
   selectedId: null,
@@ -2049,7 +2050,7 @@ function sportteryTeamsMatch(item, match) {
   );
 }
 
-function parseSportteryHalfFullItem(item) {
+function parseSportteryHalfFullItem(item, drawNum = "") {
   const resultParts = String(item.result || "").split(",");
   const halfWdl = sportteryResultToWdl(resultParts[0]);
   const fullWdl = sportteryResultToWdl(resultParts[1]);
@@ -2064,8 +2065,32 @@ function parseSportteryHalfFullItem(item) {
     homeScore: fullScore?.home ?? null,
     awayScore: fullScore?.away ?? null,
     halfFull: halfWdl && fullWdl ? `${halfWdl}/${fullWdl}` : "",
-    lotteryDrawNum: item.lotteryDrawNum || ""
+    lotteryDrawNum: drawNum || item.lotteryDrawNum || ""
   };
+}
+
+function matchSportteryHalfFullList(list, drawNum = "") {
+  const matched = {};
+  matches.forEach((match) => {
+    const item = list.find((candidate) => sportteryTeamsMatch(candidate, match));
+    const parsed = item ? parseSportteryHalfFullItem(item, drawNum) : null;
+    if (parsed) matched[match.id] = parsed;
+  });
+  return matched;
+}
+
+async function fetchSportteryHalfFullDraw(drawNum) {
+  const url = `${SPORTTERY_HALF_FULL_DRAW_URL}&lotteryDrawNum=${encodeURIComponent(drawNum)}`;
+  const response = await fetch(url, {
+    cache: "no-store",
+    headers: {
+      Accept: "application/json,text/plain,*/*"
+    }
+  });
+  if (!response.ok) throw new Error(`Sporttery ${response.status}`);
+  const payload = await response.json();
+  const list = Array.isArray(payload?.value?.matchList) ? payload.value.matchList : [];
+  return matchSportteryHalfFullList(list, drawNum);
 }
 
 async function fetchSportteryHalfFullData() {
@@ -2079,13 +2104,25 @@ async function fetchSportteryHalfFullData() {
   const payload = await response.json();
   const detail = payload?.value?.bqcDetail;
   const list = Array.isArray(detail?.matchList) ? detail.matchList : [];
-  if (!list.length) return {};
-  const matched = {};
-  matches.forEach((match) => {
-    const item = list.find((candidate) => sportteryTeamsMatch(candidate, match));
-    const parsed = item ? parseSportteryHalfFullItem(item) : null;
-    if (parsed) matched[match.id] = parsed;
-  });
+  const matched = matchSportteryHalfFullList(list, detail?.lotteryDrawNum);
+  const drawList = Array.isArray(payload?.value?.bqclist) ? payload.value.bqclist : [];
+  const completedWithoutHalf = matches
+    .filter((match) => isCompleted(match) && !actualHalfScoreText(match))
+    .map((match) => match.id);
+  const drawNums = drawList
+    .map((item) => item?.lotteryDrawNum || item)
+    .filter(Boolean)
+    .filter((drawNum) => drawNum !== detail?.lotteryDrawNum)
+    .slice(0, 12);
+
+  for (const drawNum of drawNums) {
+    if (completedWithoutHalf.every((id) => matched[id])) break;
+    try {
+      Object.assign(matched, await fetchSportteryHalfFullDraw(drawNum));
+    } catch (error) {
+      // Continue with other draw periods.
+    }
+  }
   return matched;
 }
 
@@ -2101,6 +2138,9 @@ function mergeSportteryHalfFull(scoreData, halfFullData) {
     }
     merged.halfFullSource = supplement.source;
     merged.halfFullFetchedAt = supplement.fetchedAt;
+    if (supplement.homeScore != null && supplement.awayScore != null) merged.completed = true;
+    if (!merged.status && supplement.halfFull) merged.status = "比赛已结束";
+    if (!merged.state && supplement.halfFull) merged.state = "post";
     if (!merged.source) merged.source = supplement.source;
     scoreData[id] = merged;
   });
