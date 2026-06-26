@@ -423,7 +423,6 @@ h1 {
   margin: 0 auto;
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
-  align-items: stretch;
   gap: 22px;
   padding: 8px var(--page-pad) 48px;
   min-width: 0;
@@ -438,17 +437,13 @@ h1 {
 }
 
 .match-panel {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  align-self: stretch;
+  align-self: start;
 }
 
 .match-list {
   display: grid;
-  align-content: start;
   gap: 10px;
-  height: 100%;
-  max-height: none;
+  max-height: min(72vh, 760px);
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -1279,11 +1274,6 @@ h1 {
     grid-template-columns: 1fr;
   }
 
-  .match-panel {
-    display: block;
-    align-self: auto;
-  }
-
   .hero {
     min-height: auto;
     gap: 22px;
@@ -1316,7 +1306,6 @@ h1 {
   }
 
   .match-list {
-    height: auto;
     max-height: min(58vh, 560px);
   }
 
@@ -1638,7 +1627,6 @@ h1 {
   }
 
   .match-list {
-    height: auto;
     max-height: 360px;
   }
 
