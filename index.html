@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>天机赛局 World Cup Oracle Agent</title>
     <link rel="icon" href="icon.ico" type="image/x-icon" />
-    <link rel="stylesheet" href="styles.css?v=20260627-fixed-schedule-height" />
+    <link rel="stylesheet" href="styles.css?v=20260627-standard-schedule-arrows" />
   </head>
   <body>
     <main id="top">
@@ -46,7 +46,9 @@
         <aside class="match-panel">
           <div class="section-kicker">Select Match</div>
           <h2>选择推演场次</h2>
-          <div class="match-list" id="matchList"></div>
+          <div class="match-list-shell" aria-label="赛程列表可上下滚动">
+            <div class="match-list" id="matchList"></div>
+          </div>
         </aside>
 
         <article class="analysis-panel">
@@ -134,6 +136,6 @@
     </div>
 
     <script src="config.local.js"></script>
-    <script src="app.js?v=20260627-fixed-schedule-height"></script>
+    <script src="app.js?v=20260627-record-dedupe-fix"></script>
   </body>
 </html>
