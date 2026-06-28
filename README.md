@@ -23,7 +23,6 @@
 - 加入十二时辰、六爻八卦、本卦、变卦、动爻、世应取象等推演步骤。
 - 输出胜平负、两个候选比分、半场比分推演、半全场胜平负、置信度和风险提示。
 - 保存推演结果，赛后自动回填真实赛果并复盘，使用复盘结果温和校准后续模型。
-- 适配桌面和手机屏幕。
 
 ## 使用方式
 
@@ -143,7 +142,6 @@ A static web app for World Cup match analysis and prediction experiments. It com
 - Liu Yao and Bagua deduction steps, including main hexagram, changed hexagram, moving line, and symbolic interpretation.
 - Outputs win/draw/loss, two candidate scores, half-time score prediction, half/full-time prediction, confidence, and risk notes.
 - Saves prediction records, verifies completed matches, and gently recalibrates the model from review results.
-- Responsive layout for desktop and mobile screens.
 
 ## Usage
 
