@@ -1,6 +1,7 @@
 config.local.js
 .agents/
 node_modules/
+.wrangler/
 .DS_Store
 Thumbs.db
 *.log

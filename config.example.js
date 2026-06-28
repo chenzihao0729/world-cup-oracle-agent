@@ -3,6 +3,7 @@ window.ORACLE_CONFIG = {
   // Do not commit config.local.js with a real key.
   oddsApiKey: "",
   footballDataApiKey: "",
+  footballDataProxyUrl: "",
   oddsSportKey: "soccer_fifa_world_cup",
   oddsRegions: "us"
 };

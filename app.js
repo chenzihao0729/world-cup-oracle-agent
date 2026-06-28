@@ -700,17 +700,18 @@ const starPlayerProfiles = {
   库拉索: { attack: 66, creation: 65, finishing: 65, defense: 68, influence: 64, depth: 62, label: "个人能力有限，依赖整体防守" }
 };
 
-const ODDS_CACHE_KEY = "oracle-odds-cache";
+const ODDS_CACHE_KEY = "oracle-odds-cache-v2";
 const ODDS_USAGE_KEY = "oracle-odds-usage";
 const ODDS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const ODDS_MONTHLY_BUDGET = 500;
-const SCHEDULE_CACHE_KEY = "oracle-schedule-cache";
+const SCHEDULE_CACHE_KEY = "oracle-schedule-cache-v2";
 const SCHEDULE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const SCHEDULE_LOOKAHEAD_DAYS = 35;
-const FOOTBALL_DATA_CACHE_KEY = "oracle-football-data-cache-v3";
+const FOOTBALL_DATA_CACHE_KEY = "oracle-football-data-cache-v4";
 const FOOTBALL_DATA_CACHE_TTL_MS = 30 * 60 * 1000;
 const FOOTBALL_DATA_MIN_INTERVAL_MS = 8 * 1000;
 const FOOTBALL_DATA_MATCHES_URL = "https://api.football-data.org/v4/matches";
+const DEFAULT_FOOTBALL_DATA_PROXY_URL = "https://worldcup-oracle-api.czh980729.workers.dev/football-data/matches";
 
 const state = {
   selectedId: null,
@@ -722,6 +723,7 @@ const state = {
   oddsData: {},
   oddsApiKey: String(window.ORACLE_CONFIG?.oddsApiKey || localStorage.getItem("odds-api-key") || "").trim(),
   footballDataApiKey: String(window.ORACLE_CONFIG?.footballDataApiKey || localStorage.getItem("football-data-api-key") || "").trim(),
+  footballDataProxyUrl: String(window.ORACLE_CONFIG?.footballDataProxyUrl || localStorage.getItem("football-data-proxy-url") || DEFAULT_FOOTBALL_DATA_PROXY_URL).trim(),
   oddsSportKey: String(window.ORACLE_CONFIG?.oddsSportKey || localStorage.getItem("odds-sport-key") || "soccer_fifa_world_cup").trim(),
   oddsRegions: String(window.ORACLE_CONFIG?.oddsRegions || localStorage.getItem("odds-regions") || "us").trim(),
   revealedPredictions: JSON.parse(localStorage.getItem("oracle-predictions") || "{}"),
@@ -1072,6 +1074,8 @@ function chinaDayMatches() {
 function matchPhase(match, now = currentChinaNow()) {
   const score = matchScore(match);
   if (score?.completed) return "completed";
+  if (isPregameStatus(score?.status)) return "upcoming";
+  if (score?.state === "pre") return "upcoming";
   if (score?.state === "in") return "live";
   if (matchStartTime(match).getTime() <= now.getTime()) return "live";
   return "upcoming";
@@ -1628,6 +1632,27 @@ function actualHalfFull(match) {
   return half && full ? `${half}/${full}` : "";
 }
 
+function nullableNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function footballDataStatusMeta(status) {
+  const value = String(status || "").toUpperCase();
+  if (value === "FINISHED") return { status: "比赛已结束", completed: true, state: "post" };
+  if (value === "IN_PLAY" || value === "PAUSED") return { status: normalizeMatchStatus(status), completed: false, state: "in" };
+  if (value === "TIMED" || value === "SCHEDULED") return { status: "未开始", completed: false, state: "pre" };
+  if (value === "POSTPONED") return { status: "延期", completed: false, state: "pre" };
+  if (value === "CANCELED" || value === "CANCELLED") return { status: "取消", completed: false, state: "pre" };
+  return { status: normalizeMatchStatus(status || "待赛"), completed: false, state: "pre" };
+}
+
+function isPregameStatus(status) {
+  const value = String(status || "").toLowerCase();
+  return value === "timed" || value === "scheduled" || value.includes("scheduled") || value.includes("未开始") || value.includes("待赛");
+}
+
 function halfFullBase(value) {
   return String(value || "").split("（")[0].trim();
 }
@@ -1635,6 +1660,13 @@ function halfFullBase(value) {
 function evaluateHalfFull(match, revealed) {
   const actual = actualHalfFull(match);
   const predicted = halfFullBase(revealed?.halfFull);
+  if (!actual || !predicted) return "";
+  return actual === predicted ? "命中" : "失准";
+}
+
+function evaluateHalfScore(match, revealed) {
+  const actual = actualHalfScoreText(match);
+  const predicted = revealed?.halfScorePrediction || revealed?.predictedHalfScore || "";
   if (!actual || !predicted) return "";
   return actual === predicted ? "命中" : "失准";
 }
@@ -1659,7 +1691,8 @@ function scoreMeta(score) {
 }
 
 function competitorScoreValue(competitor) {
-  return Number(competitor?.score ?? competitor?.curatedRank?.current ?? 0);
+  const value = competitor?.score ?? competitor?.displayScore;
+  return nullableNumber(value);
 }
 
 function firstHalfScoreValue(competitor) {
@@ -1698,7 +1731,9 @@ function halfFullRecordFields(match, revealed = null) {
     halfScore,
     halfFullActual: actual,
     halfFullPredicted: halfFullBase(revealed?.halfFull),
+    halfScorePredicted: revealed?.halfScorePrediction || revealed?.predictedHalfScore || "",
     halfFullStatus: status,
+    halfScoreStatus: revealed ? evaluateHalfScore(match, revealed) : "",
     halfFullSource: score?.halfFullSource || "",
     halfFullFetchedAt: score?.halfFullFetchedAt || ""
   };
@@ -1707,14 +1742,18 @@ function halfFullRecordFields(match, revealed = null) {
 function completedRecordPayload(match, revealed, savedAt = new Date().toLocaleString("zh-CN", { hour12: false })) {
   const status = evaluatePrediction(match, revealed);
   const halfFullStatus = evaluateHalfFull(match, revealed);
+  const halfScoreStatus = evaluateHalfScore(match, revealed);
   const halfFullActual = actualHalfFull(match);
   const halfFullResult = halfFullActual ? `；半全场 ${halfFullActual}${actualHalfScoreText(match) ? `（半场 ${actualHalfScoreText(match)}）` : ""}` : "";
+  const statusParts = [status];
+  if (halfFullStatus) statusParts.push(`半全场${halfFullStatus}`);
+  if (halfScoreStatus) statusParts.push(`半场比分${halfScoreStatus}`);
   const result = `${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}`;
   return {
     id: `auto-${match.id}`,
     match: matchTitle(match),
     result,
-    status: halfFullStatus ? `${status}｜半全场${halfFullStatus}` : status,
+    status: statusParts.join("｜"),
     trend: `赛前输出：${predictionFullResultText(match, revealed)}；真实赛果：${actualResultLabel(match)} · ${actualScoreText(match)}${halfFullResult}。`,
     conclusion: reviewConclusion(match, revealed, status),
     savedAt,
@@ -1732,7 +1771,9 @@ function recordNeedsPayloadUpdate(record, payload) {
     "halfScore",
     "halfFullActual",
     "halfFullPredicted",
+    "halfScorePredicted",
     "halfFullStatus",
+    "halfScoreStatus",
     "halfFullSource",
     "halfFullFetchedAt"
   ].some((key) => (record[key] || "") !== (payload[key] || ""));
@@ -1752,6 +1793,8 @@ function reviewConclusion(match, revealed, status) {
   const halfFullPredicted = halfFullBase(revealed?.halfFull);
   const halfFullStatus = evaluateHalfFull(match, revealed);
   const halfScore = actualHalfScoreText(match);
+  const predictedHalfScore = revealed?.halfScorePrediction || revealed?.predictedHalfScore || "";
+  const halfScoreStatus = evaluateHalfScore(match, revealed);
   const tone = stableIndex(`${match.id}-${status}-${scoreText}`, 3);
   const points = [];
 
@@ -1795,6 +1838,9 @@ function reviewConclusion(match, revealed, status) {
         ? "半场节奏需回调"
         : "半场节奏待继续观察";
     points.push(`半全场：赛前「${halfFullPredicted || "未记录"}」，真实「${halfFullActual}」${halfScore ? `（${halfScore}）` : ""}，${halfStatusText}`);
+    if (predictedHalfScore && halfScore) {
+      points.push(`半场比分：赛前「${predictedHalfScore}」，真实「${halfScore}」，${halfScoreStatus || "待验证"}`);
+    }
   } else {
     points.push("半场比分未回填，暂不校准半全场节奏");
   }
@@ -1881,6 +1927,7 @@ function applyCalibrationFromResult(match, revealed, status) {
   const scoreText = actualScoreText(match);
   const scoreHit = Boolean(scoreText && revealed.scoreOptions?.includes(scoreText));
   const halfFullStatus = evaluateHalfFull(match, revealed);
+  const halfScoreStatus = evaluateHalfScore(match, revealed);
   applyScoreCalibrationFromResult(scoreText, revealed);
   const missScale = status === "失准" ? 1 : 0.18;
   const factor = 0.018 * missScale;
@@ -1914,11 +1961,21 @@ function applyCalibrationFromResult(match, revealed, status) {
     const predictedHalfEdge = wdlToEdge(halfFullBase(revealed.halfFull).split("/")[0]);
     cal.firstHalfBias = clamp(cal.firstHalfBias + (actualHalfEdge - predictedHalfEdge) * 0.08, -0.45, 0.45);
   }
+  if (halfScoreStatus === "命中") {
+    cal.firstHalfBias = clamp(cal.firstHalfBias + 0.025, -0.45, 0.45);
+  } else if (halfScoreStatus === "失准") {
+    const actualHalf = scoreMeta(parseScoreText(actualHalfScoreText(match)));
+    const predictedHalf = scoreMeta(parseScoreText(revealed.halfScorePrediction || revealed.predictedHalfScore));
+    if (actualHalf && predictedHalf) {
+      cal.firstHalfBias = clamp(cal.firstHalfBias + (actualHalf.total - predictedHalf.total) * 0.035, -0.45, 0.45);
+    }
+  }
 
   cal.samples += 1;
   cal.learnedMatches[match.id] = {
     status,
     halfFullStatus,
+    halfScoreStatus,
     actual: `${actualResultLabel(match)} ${scoreText}${actualHalfFull(match) ? ` 半全场${actualHalfFull(match)}` : ""}`,
     predicted: predictionFullResultText(match, revealed),
     conclusion: reviewConclusion(match, revealed, status),
@@ -2149,6 +2206,19 @@ function utcDateKey(iso) {
   }).format(new Date(iso)).replaceAll("-", "");
 }
 
+function isValidDateValue(value) {
+  return Number.isFinite(new Date(value).getTime());
+}
+
+function safeUtcDateKey(value) {
+  return isValidDateValue(value) ? utcDateKey(value) : "";
+}
+
+function compactDateKeyToIsoDate(dateKey) {
+  const text = String(dateKey || "");
+  return /^\d{8}$/.test(text) ? `${text.slice(0, 4)}-${text.slice(4, 6)}-${text.slice(6, 8)}` : text;
+}
+
 function addDays(date, days) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -2267,21 +2337,29 @@ function extractScoreEvent(event, match) {
   const awayScore = competitorScoreValue(away);
   const halfHomeScore = firstHalfScoreValue(home);
   const halfAwayScore = firstHalfScoreValue(away);
+  const statusType = competition.status?.type || event.status?.type || {};
+  const completed = Boolean(statusType.completed);
+  const rawStatus = statusType.shortDetail || statusType.description || statusType.name || "未开始";
+  const pregame = isPregameStatus(rawStatus);
+  const state = pregame ? "pre" : (statusType.state || "pre");
+  const status = pregame ? "未开始" : rawStatus;
+  if (completed && (homeScore == null || awayScore == null)) return null;
 
   return {
     source: "ESPN scoreboard",
     fetchedAt: new Date().toISOString(),
-    status: competition.status?.type?.shortDetail || event.status?.type?.shortDetail || "未开始",
-    completed: Boolean(competition.status?.type?.completed || event.status?.type?.completed),
-    state: competition.status?.type?.state || event.status?.type?.state || "pre",
-    homeScore,
-    awayScore,
-    halfHomeScore,
-    halfAwayScore
+    status,
+    completed,
+    state,
+    homeScore: pregame ? null : homeScore,
+    awayScore: pregame ? null : awayScore,
+    halfHomeScore: pregame ? null : halfHomeScore,
+    halfAwayScore: pregame ? null : halfAwayScore
   };
 }
 
 function footballDataTeamsMatch(event, match) {
+  if (!isValidDateValue(event.utcDate) || !isValidDateValue(match.beijingTime)) return false;
   if (event.utcDate && Math.abs(new Date(event.utcDate) - new Date(match.beijingTime)) > 36 * 60 * 60 * 1000) return false;
   const homeCandidates = [event.homeTeam?.name, event.homeTeam?.shortName, event.homeTeam?.tla].map(normalizeTeamName).filter(Boolean);
   const awayCandidates = [event.awayTeam?.name, event.awayTeam?.shortName, event.awayTeam?.tla].map(normalizeTeamName).filter(Boolean);
@@ -2299,6 +2377,7 @@ function footballDataTeamsMatch(event, match) {
 }
 
 function footballDataScoreFallbackMatch(event, match, scoreData = state.scoreData) {
+  if (!isValidDateValue(event.utcDate) || !isValidDateValue(match.beijingTime)) return false;
   if (event.utcDate && Math.abs(new Date(event.utcDate) - new Date(match.beijingTime)) > 36 * 60 * 60 * 1000) return false;
   const score = scoreData[match.id];
   const full = event.score?.fullTime || {};
@@ -2327,50 +2406,25 @@ function footballDataScoreFallbackMatch(event, match, scoreData = state.scoreDat
 function parseFootballDataScore(event) {
   const full = event.score?.fullTime || {};
   const half = event.score?.halfTime || {};
-  const homeScore = Number(full.home);
-  const awayScore = Number(full.away);
-  const halfHomeScore = Number(half.home);
-  const halfAwayScore = Number(half.away);
-  if (!Number.isFinite(homeScore) || !Number.isFinite(awayScore)) return null;
+  const homeScore = nullableNumber(full.home);
+  const awayScore = nullableNumber(full.away);
+  const halfHomeScore = nullableNumber(half.home);
+  const halfAwayScore = nullableNumber(half.away);
+  const meta = footballDataStatusMeta(event.status);
+  if (meta.completed && (homeScore == null || awayScore == null)) return null;
+  if (homeScore == null && awayScore == null && halfHomeScore == null && halfAwayScore == null && meta.state !== "pre") return null;
   return {
     source: "Football-Data 半场比分",
     fetchedAt: new Date().toISOString(),
-    status: event.status === "FINISHED" ? "比赛已结束" : event.status || "比分已更新",
-    completed: event.status === "FINISHED",
-    state: event.status === "FINISHED" ? "post" : "in",
+    status: meta.status,
+    completed: meta.completed,
+    state: meta.state,
     homeScore,
     awayScore,
-    halfHomeScore: Number.isFinite(halfHomeScore) ? halfHomeScore : null,
-    halfAwayScore: Number.isFinite(halfAwayScore) ? halfAwayScore : null,
+    halfHomeScore,
+    halfAwayScore,
     footballDataId: event.id
   };
-}
-
-const verifiedHalfFullScores = [
-  { id: "espn-newzea-belgiu-20260627", halfHomeScore: 0, halfAwayScore: 1, source: "Football-Data 已验证半场比分" },
-  { id: "espn-egypt-iran-20260627", halfHomeScore: 1, halfAwayScore: 1, source: "Football-Data 已验证半场比分" },
-  { id: "espn-urugua-spain-20260627", halfHomeScore: 0, halfAwayScore: 1, source: "Football-Data 已验证半场比分" },
-  { id: "espn-capeve-saudia-20260627", halfHomeScore: 0, halfAwayScore: 0, source: "Football-Data 已验证半场比分" },
-  { id: "espn-norway-france-20260627", halfHomeScore: 1, halfAwayScore: 3, source: "Football-Data 已验证半场比分" },
-  { id: "espn-senega-iraq-20260627", halfHomeScore: 1, halfAwayScore: 0, source: "Football-Data 已验证半场比分" }
-];
-
-function applyVerifiedHalfFullFallback(scoreData) {
-  let changed = false;
-  verifiedHalfFullScores.forEach((item) => {
-    const current = scoreData[item.id];
-    if (!current?.completed) return;
-    if (current.halfHomeScore != null && current.halfAwayScore != null) return;
-    scoreData[item.id] = {
-      ...current,
-      halfHomeScore: item.halfHomeScore,
-      halfAwayScore: item.halfAwayScore,
-      halfFullSource: item.source,
-      halfFullFetchedAt: new Date().toISOString()
-    };
-    changed = true;
-  });
-  return changed;
 }
 
 function footballDataNeeded(scoreData = state.scoreData) {
@@ -2383,19 +2437,23 @@ function footballDataNeeded(scoreData = state.scoreData) {
 function footballDataDateRange(scoreData = state.scoreData) {
   const missingHalfMatches = matches.filter((match) => {
     const score = scoreData[match.id];
-    return score?.completed && (score.halfHomeScore == null || score.halfAwayScore == null);
+    return isValidDateValue(match.beijingTime) && score?.completed && (score.halfHomeScore == null || score.halfAwayScore == null);
   }).sort((a, b) => matchStartTime(b) - matchStartTime(a)).slice(0, 8);
   const startedMatches = matches.filter((match) => {
     const score = scoreData[match.id];
-    return score?.completed || matchStartTime(match) <= currentChinaNow();
+    return isValidDateValue(match.beijingTime) && (score?.completed || matchStartTime(match) <= currentChinaNow());
   });
   const targetMatches = missingHalfMatches.length ? missingHalfMatches : startedMatches;
-  const dateKeys = (targetMatches.length ? targetMatches : matches).map((match) => utcDateKey(match.beijingTime)).sort();
-  const dateFrom = dateKeys[0] || utcDateKey(currentChinaNow());
-  const dateTo = dateKeys[dateKeys.length - 1] || utcDateKey(currentChinaNow());
+  const dateKeys = (targetMatches.length ? targetMatches : matches)
+    .map((match) => safeUtcDateKey(match.beijingTime))
+    .filter(Boolean)
+    .sort();
+  const fallbackDate = utcDateKey(currentChinaNow());
+  const dateFrom = dateKeys[0] || fallbackDate;
+  const dateTo = dateKeys[dateKeys.length - 1] || fallbackDate;
   return {
-    dateFrom: addDays(new Date(`${dateFrom}T00:00:00Z`), -1).toISOString().slice(0, 10),
-    dateTo: addDays(new Date(`${dateTo}T00:00:00Z`), 1).toISOString().slice(0, 10)
+    dateFrom: addDays(new Date(`${compactDateKeyToIsoDate(dateFrom)}T00:00:00Z`), -1).toISOString().slice(0, 10),
+    dateTo: addDays(new Date(`${compactDateKeyToIsoDate(dateTo)}T00:00:00Z`), 1).toISOString().slice(0, 10)
   };
 }
 
@@ -2435,25 +2493,49 @@ function writeFootballDataLastFetchAt() {
   localStorage.setItem("oracle-football-data-last-fetch", String(Date.now()));
 }
 
+function splitFootballDataRange(range) {
+  const start = new Date(`${range.dateFrom}T00:00:00Z`);
+  const end = new Date(`${range.dateTo}T00:00:00Z`);
+  if (!isValidDateValue(start) || !isValidDateValue(end) || start > end) return [range];
+  const ranges = [];
+  let cursor = start;
+  while (cursor <= end) {
+    const chunkEnd = new Date(Math.min(addDays(cursor, 9).getTime(), end.getTime()));
+    ranges.push({
+      dateFrom: cursor.toISOString().slice(0, 10),
+      dateTo: chunkEnd.toISOString().slice(0, 10)
+    });
+    cursor = addDays(chunkEnd, 1);
+  }
+  return ranges;
+}
+
+function footballDataErrorMessage(error) {
+  const message = error?.message || "";
+  if (message === "Failed to fetch" || error?.name === "TypeError") {
+    return "浏览器跨域限制，已切换 ESPN 备用";
+  }
+  return message || "浏览器跨域限制，已切换 ESPN 备用";
+}
+
 async function fetchFootballDataScores({ force = false, scoreData = state.scoreData } = {}) {
-  if (!state.footballDataApiKey) return {};
+  if (!state.footballDataApiKey && !state.footballDataProxyUrl) return {};
   const range = footballDataDateRange(scoreData);
   const cached = readFootballDataCache(range);
   if (!force && cached && Object.keys(cached.data || {}).length) return cached.data || {};
   if (!force && cached && Date.now() - footballDataLastFetchAt() < FOOTBALL_DATA_MIN_INTERVAL_MS) return cached.data || {};
   writeFootballDataLastFetchAt();
-  const { dateFrom, dateTo } = range;
-  const url = `${FOOTBALL_DATA_MATCHES_URL}?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`;
-  const response = await fetch(url, {
-    cache: "no-store",
-    headers: {
-      "X-Auth-Token": state.footballDataApiKey,
-      Accept: "application/json"
-    }
-  });
-  if (!response.ok) throw new Error(`Football-Data ${response.status}`);
-  const payload = await response.json();
-  const events = Array.isArray(payload.matches) ? payload.matches : [];
+  const baseUrl = state.footballDataProxyUrl || FOOTBALL_DATA_MATCHES_URL;
+  const headers = state.footballDataProxyUrl
+    ? { Accept: "application/json" }
+    : { "X-Auth-Token": state.footballDataApiKey, Accept: "application/json" };
+  const payloads = await Promise.all(splitFootballDataRange(range).map(async ({ dateFrom, dateTo }) => {
+    const url = `${baseUrl}?dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`;
+    const response = await fetch(url, { cache: "no-store", headers });
+    if (!response.ok) throw new Error(`Football-Data ${response.status}`);
+    return response.json();
+  }));
+  const events = payloads.flatMap((payload) => Array.isArray(payload.matches) ? payload.matches : []);
   const matched = {};
   matches.forEach((match) => {
     const event = events.find((candidate) => footballDataTeamsMatch(candidate, match)) ||
@@ -2467,13 +2549,17 @@ async function fetchFootballDataScores({ force = false, scoreData = state.scoreD
 
 function mergeFootballDataScores(scoreData, footballDataScores) {
   Object.entries(footballDataScores || {}).forEach(([id, supplement]) => {
-    const current = scoreData[id];
-    if (!current) return;
+    const current = scoreData[id] || {};
     const merged = { ...current };
+    if (supplement.source) merged.source = supplement.source;
+    if (supplement.fetchedAt) merged.fetchedAt = supplement.fetchedAt;
+    if (supplement.status) merged.status = supplement.status;
+    if (typeof supplement.completed === "boolean") merged.completed = supplement.completed;
+    if (supplement.state) merged.state = supplement.state;
     if (supplement.homeScore != null) merged.homeScore = supplement.homeScore;
     if (supplement.awayScore != null) merged.awayScore = supplement.awayScore;
-    if (merged.halfHomeScore == null && supplement.halfHomeScore != null) merged.halfHomeScore = supplement.halfHomeScore;
-    if (merged.halfAwayScore == null && supplement.halfAwayScore != null) merged.halfAwayScore = supplement.halfAwayScore;
+    if (supplement.halfHomeScore != null) merged.halfHomeScore = supplement.halfHomeScore;
+    if (supplement.halfAwayScore != null) merged.halfAwayScore = supplement.halfAwayScore;
     merged.halfFullSource = supplement.source;
     merged.halfFullFetchedAt = supplement.fetchedAt;
     merged.footballDataId = supplement.footballDataId;
@@ -2482,8 +2568,9 @@ function mergeFootballDataScores(scoreData, footballDataScores) {
   return scoreData;
 }
 
-async function fetchScoreboardData() {
-  const dateKeys = [...new Set(matches.map((match) => utcDateKey(match.beijingTime)))];
+async function fetchEspnScoreboardScores() {
+  const dateKeys = [...new Set(matches.map((match) => safeUtcDateKey(match.beijingTime)).filter(Boolean))];
+  if (!dateKeys.length) return {};
   const responses = await Promise.allSettled(
     dateKeys.map(async (dateKey) => {
       const response = await fetch(`https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dateKey}`);
@@ -2501,17 +2588,43 @@ async function fetchScoreboardData() {
     const score = events.map((event) => extractScoreEvent(event, match)).find(Boolean);
     if (score) scoreData[match.id] = score;
   });
-  if (footballDataNeeded(scoreData)) {
-    try {
-      const footballDataScores = await fetchFootballDataScores({ scoreData });
-      mergeFootballDataScores(scoreData, footballDataScores);
-    } catch (error) {
-      state.footballDataStatus = `Football-Data 半场比分获取失败：${error.message || "浏览器跨域限制"}`;
+  return scoreData;
+}
+
+function mergeEspnFallbackScores(scoreData, espnScores) {
+  Object.entries(espnScores || {}).forEach(([id, fallback]) => {
+    const current = scoreData[id];
+    if (!current) {
+      scoreData[id] = fallback;
+      return;
     }
+    if (current.homeScore == null && fallback.homeScore != null) current.homeScore = fallback.homeScore;
+    if (current.awayScore == null && fallback.awayScore != null) current.awayScore = fallback.awayScore;
+    if (current.halfHomeScore == null && fallback.halfHomeScore != null) current.halfHomeScore = fallback.halfHomeScore;
+    if (current.halfAwayScore == null && fallback.halfAwayScore != null) current.halfAwayScore = fallback.halfAwayScore;
+    if (!current.status && fallback.status) current.status = fallback.status;
+    if (typeof current.completed !== "boolean" && typeof fallback.completed === "boolean") current.completed = fallback.completed;
+    if (!current.state && fallback.state) current.state = fallback.state;
+    if (!current.source && fallback.source) current.source = fallback.source;
+  });
+  return scoreData;
+}
+
+async function fetchScoreboardData() {
+  const scoreData = {};
+  let footballDataScores = {};
+  try {
+    footballDataScores = await fetchFootballDataScores({ scoreData, force: footballDataNeeded(scoreData) });
+    mergeFootballDataScores(scoreData, footballDataScores);
+    const matchedCount = Object.keys(footballDataScores || {}).length;
+    const matchedHalfCount = Object.values(footballDataScores || {}).filter((score) => score.halfHomeScore != null && score.halfAwayScore != null).length;
+    if (matchedCount) state.footballDataStatus = `Football-Data 主源更新 ${matchedCount} 场，半场 ${matchedHalfCount} 场`;
+  } catch (error) {
+    state.footballDataStatus = `Football-Data 主源失败：${footballDataErrorMessage(error)}`;
   }
-  if (applyVerifiedHalfFullFallback(scoreData)) {
-    state.footballDataStatus = "已使用 Football-Data 已验证样本回填最近半全场";
-  }
+
+  const espnScores = await fetchEspnScoreboardScores().catch(() => ({}));
+  mergeEspnFallbackScores(scoreData, espnScores);
   state.scoreData = scoreData;
   return Object.keys(scoreData).length;
 }
@@ -2538,6 +2651,24 @@ function writeOddsUsage(usage) {
   localStorage.setItem(ODDS_USAGE_KEY, JSON.stringify(usage));
 }
 
+function updateOddsUsageFromHeaders(usage, response) {
+  const used = Number(response.headers.get("x-requests-used"));
+  const remaining = Number(response.headers.get("x-requests-remaining"));
+  const last = response.headers.get("x-requests-last");
+  if (Number.isFinite(used)) usage.estimatedCredits = used;
+  if (Number.isFinite(remaining)) usage.remainingCredits = remaining;
+  if (Number.isFinite(Number(last))) usage.lastRequestCredits = Number(last);
+  return usage;
+}
+
+function formatOddsQuota(usage) {
+  const used = Number.isFinite(Number(usage.estimatedCredits)) ? Number(usage.estimatedCredits) : 0;
+  const remaining = Number.isFinite(Number(usage.remainingCredits)) ? Number(usage.remainingCredits) : null;
+  return remaining == null
+    ? `盘口额度 ${used}/${ODDS_MONTHLY_BUDGET} credits`
+    : `盘口额度 ${used}/${used + remaining} credits`;
+}
+
 function estimateOddsCredits() {
   const regionCount = Math.max(1, state.oddsRegions.split(",").filter(Boolean).length);
   return regionCount;
@@ -2547,6 +2678,7 @@ function readOddsCache() {
   try {
     const cache = JSON.parse(localStorage.getItem(ODDS_CACHE_KEY) || "{}");
     if (!cache.fetchedAt || !cache.data) return null;
+    if (!Object.keys(cache.data || {}).length) return null;
     if (Date.now() - new Date(cache.fetchedAt).getTime() > ODDS_CACHE_TTL_MS) return null;
     if (cache.sportKey !== state.oddsSportKey || cache.regions !== state.oddsRegions) return null;
     return cache;
@@ -2556,6 +2688,10 @@ function readOddsCache() {
 }
 
 function writeOddsCache(data) {
+  if (!Object.keys(data || {}).length) {
+    localStorage.removeItem(ODDS_CACHE_KEY);
+    return;
+  }
   localStorage.setItem(ODDS_CACHE_KEY, JSON.stringify({
     fetchedAt: new Date().toISOString(),
     sportKey: state.oddsSportKey,
@@ -2585,8 +2721,10 @@ async function fetchOddsData({ force = false } = {}) {
   });
   const url = `https://api.the-odds-api.com/v4/sports/${encodeURIComponent(state.oddsSportKey)}/odds/?${params}`;
   const response = await fetch(url);
+  updateOddsUsageFromHeaders(usage, response);
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
+    writeOddsUsage(usage);
     if (response.status === 401) throw new Error("The Odds API 鉴权失败：Key 无效或未授权");
     if (response.status === 403) throw new Error("The Odds API 权限不足或套餐不可用");
     if (response.status === 404) throw new Error(`The Odds API 未找到赛事类型：${state.oddsSportKey}`);
@@ -2603,9 +2741,9 @@ async function fetchOddsData({ force = false } = {}) {
   state.oddsData = matched;
   writeOddsCache(matched);
   usage.requests += 1;
-  usage.estimatedCredits += nextCredits;
+  if (!Number.isFinite(Number(usage.remainingCredits))) usage.estimatedCredits += nextCredits;
   writeOddsUsage(usage);
-  return { ok: true, count: Object.keys(matched).length, cached: false, usage };
+  return { ok: true, count: Object.keys(matched).length, eventCount: events.length, cached: false, usage };
 }
 
 async function refreshLiveData() {
@@ -2625,12 +2763,17 @@ async function refreshLiveData() {
   const matchedSources = [...new Set(Object.values(state.oddsData).map((item) => item.source).filter(Boolean))];
   const oddsSummary = summarizeOddsSources(matchedSources);
   const usage = readOddsUsage();
-  const quotaText = `盘口额度 ${usage.estimatedCredits}/${ODDS_MONTHLY_BUDGET} credits`;
+  const quotaText = formatOddsQuota(usage);
   const cacheText = oddsResult.cached ? `，使用缓存 ${new Date(oddsResult.fetchedAt).toLocaleString("zh-CN", { hour12: false })}` : "";
   const halfFullStatusText = state.footballDataStatus ? `，${state.footballDataStatus}` : "";
+  const oddsFallbackReason = oddsResult.ok && !matchedSources.length && oddsResult.eventCount
+    ? `（接口返回 ${oddsResult.eventCount} 场，但未匹配到当前赛程）`
+    : oddsResult.reason
+      ? `（${oddsResult.reason.replace("The Odds API ", "")}）`
+      : "";
   state.liveStatus = oddsResult.ok && matchedSources.length
     ? `已更新，比分匹配 ${scoreResult} 场${halfFullStatusText}，${oddsSummary}${cacheText}，${quotaText}`
-    : `已更新，比分匹配 ${scoreResult} 场${halfFullStatusText}，盘口降级为内置因子${oddsResult.reason ? `（${oddsResult.reason.replace("The Odds API ", "")}）` : ""}，${quotaText}`;
+    : `已更新，比分匹配 ${scoreResult} 场${halfFullStatusText}，盘口降级为内置因子${oddsFallbackReason}，${quotaText}`;
   syncCompletedVerifications();
   backfillRecentHalfFullRecords(6);
   render();
@@ -3196,14 +3339,19 @@ function predictionResultText(match, source) {
 
 function predictionFullResultText(match, source) {
   const base = predictionResultText(match, source);
-  return source?.halfFull ? `${base}｜半全场 ${source.halfFull}` : base;
+  const halfFull = source?.halfFull ? `｜半全场 ${source.halfFull}` : "";
+  const halfScore = source?.halfScorePrediction || source?.predictedHalfScore
+    ? `｜半场比分 ${source.halfScorePrediction || source.predictedHalfScore}`
+    : "";
+  return `${base}${halfFull}${halfScore}`;
 }
 
 function predictionReadableText(match, source) {
   if (!source) return "开始推演";
   const confidence = source.confidence ? `｜置信 ${source.confidence}%` : "";
   const halfFull = source.halfFull ? `｜半全场 ${source.halfFull}` : "";
-  return `倾向：${resultPickLabel(match, source)}｜比分 ${scoreOptionsText(source)}${halfFull}${confidence}`;
+  const halfScore = source.halfScorePrediction || source.predictedHalfScore ? `｜半场 ${source.halfScorePrediction || source.predictedHalfScore}` : "";
+  return `倾向：${resultPickLabel(match, source)}｜比分 ${scoreOptionsText(source)}${halfFull}${halfScore}${confidence}`;
 }
 
 function wdlFromOutcomeText(text) {
@@ -3282,6 +3430,65 @@ function deriveHalfFullPick(match, prediction, learning) {
   if (drawLean > 62 || learning.drawRate > 0.34) half = "平";
   if (prediction.wdl === "平") return totalGoals >= 2.7 && learning.bothScoreRate > 0.48 ? "平/平（1-1节奏）" : "平/平";
   return `${half}/${prediction.wdl}`;
+}
+
+function deriveHalfScorePrediction(match, prediction, learning) {
+  const halfFull = halfFullBase(prediction.halfFull);
+  const [halfWdl = "平"] = halfFull.split("/");
+  const totalGoals = Math.max(0, prediction.homeGoals + prediction.awayGoals);
+  const earlyGoalLean = clamp(
+    0.34 +
+      (prediction.analyst.totalGoals - 2.25) * 0.08 +
+      Math.abs(prediction.finalEdge) * 0.006 +
+      (prediction.model.timeSlot.bias > 0 ? 0.06 : -0.02) +
+      (learning.bothScoreRate - 0.44) * 0.12 +
+      state.calibration.firstHalfBias * 0.12,
+    0.16,
+    0.68
+  );
+  let halfTotal = Math.round(totalGoals * earlyGoalLean);
+  if (totalGoals >= 3 && earlyGoalLean > 0.42) halfTotal = Math.max(1, halfTotal);
+  if (prediction.analyst.totalGoals >= 2.8 && halfTotal === 0) halfTotal = 1;
+  halfTotal = clamp(halfTotal, 0, Math.min(3, totalGoals || 2));
+
+  let home = 0;
+  let away = 0;
+  if (halfTotal === 0) return "0-0";
+  if (halfWdl === "胜") {
+    home = Math.max(1, Math.ceil(halfTotal / 2));
+    away = Math.max(0, halfTotal - home);
+    if (home <= away) home = away + 1;
+  } else if (halfWdl === "负") {
+    away = Math.max(1, Math.ceil(halfTotal / 2));
+    home = Math.max(0, halfTotal - away);
+    if (away <= home) away = home + 1;
+  } else {
+    home = Math.floor(halfTotal / 2);
+    away = home;
+    if (halfTotal % 2 === 1) {
+      if (Math.abs(prediction.finalEdge) < 5 || prediction.drawCandidateLean > 58) {
+        home = 0;
+        away = 0;
+      } else if (prediction.finalEdge > 0) {
+        home = 1;
+        away = 0;
+      } else {
+        home = 0;
+        away = 1;
+      }
+    }
+  }
+
+  home = clamp(home, 0, Math.max(0, prediction.homeGoals));
+  away = clamp(away, 0, Math.max(0, prediction.awayGoals));
+  if (halfWdl === "胜" && home <= away && prediction.homeGoals > prediction.awayGoals) home = Math.min(prediction.homeGoals, away + 1);
+  if (halfWdl === "负" && away <= home && prediction.awayGoals > prediction.homeGoals) away = Math.min(prediction.awayGoals, home + 1);
+  if (halfWdl === "平" && home !== away) {
+    const tied = Math.min(home, away);
+    home = tied;
+    away = tied;
+  }
+  return `${home}-${away}`;
 }
 
 function derivePrediction(match) {
@@ -3375,8 +3582,10 @@ function derivePredictionCore(match) {
     totalGoals: analyst.totalGoals + learnedGoalShift,
     drawCandidateLean
   });
-  const halfFull = deriveHalfFullPick(match, { finalEdge, drawCandidateLean, analyst, model, wdl }, learning);
-  const trend = `算法倾向${predictionFullResultText(match, { wdl, scoreOptions, halfFull })}。`;
+  const halfFullContext = { finalEdge, drawCandidateLean, analyst, model, wdl, homeGoals, awayGoals };
+  const halfFull = deriveHalfFullPick(match, halfFullContext, learning);
+  const halfScorePrediction = deriveHalfScorePrediction(match, { ...halfFullContext, halfFull }, learning);
+  const trend = `算法倾向${predictionFullResultText(match, { wdl, scoreOptions, halfFull, halfScorePrediction })}。`;
   const risk = model.upsetIndex > 60
     ? "冷门指数偏高，盘口热度、强弱差收窄、平局压力和战术错配可能导致赛果偏离基础实力。"
     : "冷门指数中低，但仍需关注临场阵容、红黄牌、早段进球和战术执行偏差。";
@@ -3394,9 +3603,12 @@ function derivePredictionCore(match) {
     drawCandidateLean,
     recentMissPressure,
     wdl,
+    homeGoals,
+    awayGoals,
     predictedScore: scoreOptions[0],
     scoreOptions,
     halfFull,
+    halfScorePrediction,
     confidence,
     scores,
     trend,
@@ -3626,7 +3838,7 @@ function renderAnalysis() {
   document.querySelector(".prediction-board")?.classList.toggle("is-completed", completed);
   $("#wdlPick").textContent = completed ? actualResultLabel(match) : revealed ? resultPickLabel(match, revealed) : "开始推演";
   $("#scorePick").textContent = completed ? actualScoreText(match) : revealed ? scoreOptionsText(revealed) : "开始推演";
-  $("#halfFullPick").textContent = completed ? "比赛已结束" : revealed ? (revealed.halfFull || "未记录") : "开始推演";
+  $("#halfFullPick").textContent = completed ? "比赛已结束" : revealed ? `${revealed.halfFull || "未记录"}${revealed.halfScorePrediction ? `｜半场 ${revealed.halfScorePrediction}` : ""}` : "开始推演";
   $("#livePick").textContent = completed ? "比赛已结束" : revealed ? ((revealed.liveSource || preview?.live.source || "").includes("Open") ? "实时已接入" : "降级因子") : "等待推演";
   if (completed) {
     const reviewStatus = revealed ? evaluatePrediction(match, revealed) : "";
@@ -3705,7 +3917,6 @@ function renderRecordCard(record) {
         <strong>${escapeHtml(record.match)}</strong>
         <em>${escapeHtml(record.status)}</em>
       </div>
-      <div class="record-result">${escapeHtml(record.result)}</div>
       <div class="record-comparison">
         <div>
           <b>推演结果</b>
@@ -3731,28 +3942,41 @@ function renderComparisonLines(item) {
   const result = value?.result || "未记录";
   const score = value?.score || "待回填";
   const halfFull = value?.halfFull || "待回填";
+  const halfScore = value?.halfScore || "";
   return `
     <ul>
       <li>${escapeHtml(result)}</li>
       <li>比分：${escapeHtml(score)}</li>
       <li>半全场：${escapeHtml(halfFull)}</li>
+      ${halfScore ? `<li>半场比分：${escapeHtml(halfScore)}</li>` : ""}
     </ul>
   `;
 }
 
 function parseComparisonText(text) {
   const source = String(text || "").trim();
-  if (!source) return { result: "", score: "", halfFull: "" };
+  if (!source) return { result: "", score: "", halfFull: "", halfScore: "" };
   const result = source.match(/^([^·；|｜]+)/)?.[1]?.trim() || "";
   const score = source.match(/[·]\s*([^；|｜]+)/)?.[1]?.trim() || source.match(/(\d+\s*-\s*\d+(?:\/\d+\s*-\s*\d+)?)/)?.[1] || "";
   const halfFull = source.match(/半全场\s*([胜平负]\/[胜平负])/)?.[1] || "";
-  return { result, score, halfFull };
+  const halfScore = source.match(/半场(?:比分)?\s*(\d+\s*-\s*\d+)/)?.[1]?.replace(/\s+/g, "") || "";
+  return { result, score, halfFull, halfScore };
 }
 
 function recordComparison(record) {
+  const actual = parseComparisonText(String(record.trend || "").match(/真实赛果[:：]\s*([^。]+)/)?.[1] || record.result || "");
+  if (record.halfFullActual || record.halfScore) {
+    actual.halfFull = record.halfFullActual || actual.halfFull;
+    actual.halfScore = record.halfScore || actual.halfScore;
+  }
+  const predicted = parseComparisonText(String(record.trend || "").match(/赛前输出[:：]\s*([^；。]+)/)?.[1] || "");
+  if (record.halfFullPredicted || record.halfScorePredicted) {
+    predicted.halfFull = record.halfFullPredicted || predicted.halfFull;
+    predicted.halfScore = record.halfScorePredicted || predicted.halfScore;
+  }
   return {
-    predicted: parseComparisonText(String(record.trend || "").match(/赛前输出[:：]\s*([^；。]+)/)?.[1] || ""),
-    actual: parseComparisonText(String(record.trend || "").match(/真实赛果[:：]\s*([^。]+)/)?.[1] || "")
+    predicted,
+    actual
   };
 }
 
@@ -3872,6 +4096,7 @@ async function importRecordBundle(file) {
 function backfillOracleSnapshot(match, revealed, prediction) {
   if (!revealed || !prediction?.oracle) return;
   revealed.halfFull = revealed.halfFull || prediction.halfFull;
+  revealed.halfScorePrediction = revealed.halfScorePrediction || prediction.halfScorePrediction;
   if (revealed.oracleSnapshot) {
     state.revealedPredictions[match.id] = revealed;
     persistPredictions();
@@ -3904,6 +4129,7 @@ function backfillOracleSnapshot(match, revealed, prediction) {
     oracleBias: prediction.oracle.oracleBias
   };
   revealed.liveSource = revealed.liveSource || prediction.live?.source;
+  revealed.halfScorePrediction = revealed.halfScorePrediction || prediction.halfScorePrediction;
   state.revealedPredictions[match.id] = revealed;
   persistPredictions();
 }
@@ -3918,6 +4144,7 @@ function renderMatchStripClean() {
     .map((match) => {
       const revealed = state.revealedPredictions[match.id];
       const phase = matchPhase(match);
+      const liveWithScore = phase === "live" && matchScore(match)?.homeScore != null && matchScore(match)?.awayScore != null;
       const canPredict = phase === "upcoming" && !revealed;
       const readable = revealed ? predictionReadableText(match, revealed) : "";
       return `
@@ -3926,7 +4153,7 @@ function renderMatchStripClean() {
             <small>${match.stage} ${match.group} · 北京时间 ${formatBeijingTime(match.beijingTime)}</small>
             <strong>${matchTitlePlain(match)}</strong>
             <small>${venueName(match)} · ${matchStatusText(match)}</small>
-          <small class="${isCompleted(match) || revealed || phase === "live" ? "prediction-revealed" : "prediction-pending"}">${isCompleted(match) ? `真实赛果：${actualResultLabel(match)} · ${actualScoreText(match)}` : phase === "live" ? `实时比分：${matchStatusText(match)}` : revealed ? readable : "推演状态：开始推演"}</small>
+            <small class="${isCompleted(match) || revealed || liveWithScore ? "prediction-revealed" : "prediction-pending"}">${isCompleted(match) ? `真实赛果：${actualResultLabel(match)} · ${actualScoreText(match)}` : liveWithScore ? `实时比分：${matchStatusText(match)}` : revealed ? readable : "推演状态：开始推演"}</small>
           </div>
           ${canPredict ? `<button type="button" data-predict="${match.id}">开始推演</button>` : ""}
         </article>
@@ -3939,7 +4166,9 @@ function matchStatusText(match) {
   const score = state.scoreData[match.id];
   if (!score) return matchStartTime(match).getTime() <= currentChinaNow().getTime() ? "比赛进行中，比分刷新中" : "待赛";
   if (score.completed) return `${score.homeScore}-${score.awayScore} 比赛已结束`;
-  if (score.state === "in") return `${score.status} ${score.homeScore}-${score.awayScore}`;
+  if (isPregameStatus(score.status)) return "未开始";
+  if (score.state === "pre") return normalizeMatchStatus(score.status);
+  if (score.state === "in" && score.homeScore != null && score.awayScore != null) return `${score.status} ${score.homeScore}-${score.awayScore}`;
   return normalizeMatchStatus(score.status);
 }
 
@@ -3947,14 +4176,19 @@ function matchStatusHtml(match) {
   const score = state.scoreData[match.id];
   if (!score) return matchStartTime(match).getTime() <= currentChinaNow().getTime() ? `<span class="status-row">比赛进行中，比分刷新中</span>` : `<span class="status-row">未开始</span>`;
   if (score.completed) return `<span class="score-line"><strong class="score-highlight">${score.homeScore}-${score.awayScore}</strong></span><span>比赛已结束</span>`;
-  if (score.state === "in") return `<span>${score.status}</span><span class="score-line"><strong class="score-highlight">${score.homeScore}-${score.awayScore}</strong></span>`;
+  if (isPregameStatus(score.status)) return `<span class="status-row">未开始</span>`;
+  if (score.state === "pre") return `<span class="status-row">${normalizeMatchStatus(score.status)}</span>`;
+  if (score.state === "in" && score.homeScore != null && score.awayScore != null) return `<span>${score.status}</span><span class="score-line"><strong class="score-highlight">${score.homeScore}-${score.awayScore}</strong></span>`;
   return `<span class="status-row">${normalizeMatchStatus(score.status)}</span>`;
 }
 
 function normalizeMatchStatus(status) {
   const value = String(status || "").toLowerCase();
   if (!value) return "待赛";
+  if (value === "timed" || value.includes("scheduled")) return "未开始";
   if (value.includes("scheduled")) return "未开始";
+  if (value === "in_play" || value.includes("in play")) return "比赛进行中";
+  if (value === "paused") return "半场";
   if (value === "ft" || value.includes("full time")) return "比赛已结束";
   if (value.includes("half")) return "半场";
   if (value.includes("postponed")) return "延期";
@@ -4147,6 +4381,7 @@ async function runLiveDeduction(id) {
     predictedScore: prediction.predictedScore,
     scoreOptions: prediction.scoreOptions,
     halfFull: prediction.halfFull,
+    halfScorePrediction: prediction.halfScorePrediction,
     confidence: prediction.confidence,
     finalEdge: prediction.finalEdge,
     analystEdge: prediction.analyst.analystEdge,
