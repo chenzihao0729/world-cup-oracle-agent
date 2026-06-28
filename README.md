@@ -49,9 +49,8 @@ config.example.js -> config.local.js
 
 ```js
 window.ORACLE_CONFIG = {
-  oddsApiKey: "your-the-odds-api-key",
-  footballDataApiKey: "",
-  footballDataProxyUrl: "https://your-worker.workers.dev/football-data/matches",
+  oddsApiKey: "你的api key",
+  footballDataProxyUrl: "你的Worker代理接口地址",
   oddsSportKey: "soccer_fifa_world_cup",
   oddsRegions: "us"
 };
@@ -170,9 +169,8 @@ Fill in your API configuration:
 
 ```js
 window.ORACLE_CONFIG = {
-  oddsApiKey: "your-the-odds-api-key",
-  footballDataApiKey: "",
-  footballDataProxyUrl: "https://your-worker.workers.dev/football-data/matches",
+  oddsApiKey: "your api key",
+  footballDataProxyUrl: "your Worker proxy endpoint",
   oddsSportKey: "soccer_fifa_world_cup",
   oddsRegions: "us"
 };
