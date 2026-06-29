@@ -712,6 +712,7 @@ const FOOTBALL_DATA_CACHE_TTL_MS = 30 * 60 * 1000;
 const FOOTBALL_DATA_MIN_INTERVAL_MS = 8 * 1000;
 const FOOTBALL_DATA_MATCHES_URL = "https://api.football-data.org/v4/matches";
 const DEFAULT_FOOTBALL_DATA_PROXY_URL = "https://worldcup-oracle-api.czh980729.workers.dev/football-data/matches";
+const CLEARED_RECORD_KEYS_KEY = "oracle-cleared-record-keys";
 
 const state = {
   selectedId: null,
@@ -736,7 +737,8 @@ const state = {
   scheduleFetchedAt: "",
   verifiedChinaDate: "",
   calibration: loadCalibration(),
-  records: JSON.parse(localStorage.getItem("oracle-records") || "[]")
+  records: JSON.parse(localStorage.getItem("oracle-records") || "[]"),
+  clearedRecordKeys: JSON.parse(localStorage.getItem(CLEARED_RECORD_KEYS_KEY) || "[]")
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -1220,6 +1222,38 @@ function recordMatchKey(record) {
   if (matchText) return `match-${matchText}`;
   if (id.startsWith("auto-") && !id.startsWith("auto-legacy-")) return id;
   return id || `record-${normalizeRecordText(record?.result)}-${normalizeRecordText(record?.savedAt)}`;
+}
+
+function autoRecordKeysForMatch(match) {
+  return [`auto-${match.id}`, `match-${normalizeRecordText(matchTitle(match))}`];
+}
+
+function isRecordCleared(recordOrMatch) {
+  const keys = new Set(state.clearedRecordKeys || []);
+  if (recordOrMatch?.home && recordOrMatch?.away) {
+    return autoRecordKeysForMatch(recordOrMatch).some((key) => keys.has(key));
+  }
+  return keys.has(recordMatchKey(recordOrMatch)) || keys.has(String(recordOrMatch?.id || ""));
+}
+
+function persistClearedRecordKeys() {
+  state.clearedRecordKeys = [...new Set(state.clearedRecordKeys || [])];
+  localStorage.setItem(CLEARED_RECORD_KEYS_KEY, JSON.stringify(state.clearedRecordKeys));
+}
+
+function rememberClearedRecords() {
+  const keys = new Set(state.clearedRecordKeys || []);
+  state.records.forEach((record) => {
+    keys.add(recordMatchKey(record));
+    if (record.id) keys.add(String(record.id));
+  });
+  matches.forEach((match) => {
+    if (isCompleted(match) || state.scoreData[match.id]?.completed) {
+      autoRecordKeysForMatch(match).forEach((key) => keys.add(key));
+    }
+  });
+  state.clearedRecordKeys = [...keys];
+  persistClearedRecordKeys();
 }
 
 function matchTitle(match) {
@@ -2009,6 +2043,7 @@ function syncCompletedVerifications() {
     if (!isCompleted(match)) return;
     const revealed = state.revealedPredictions[match.id];
     if (!revealed) return;
+    if (isRecordCleared(match)) return;
 
     const recordId = `auto-${match.id}`;
     const status = evaluatePrediction(match, revealed);
@@ -2072,6 +2107,7 @@ function backfillRecentHalfFullRecords(limit = 6) {
   let changed = false;
   state.records = dedupeRecords();
   recentCompletedHalfFullMatches(limit).forEach((match) => {
+    if (isRecordCleared(match)) return;
     const revealed = state.revealedPredictions[match.id];
     const payload = revealed
       ? completedRecordPayload(match, revealed)
@@ -4066,6 +4102,9 @@ function mergeRecords(incomingRecords) {
     merged.set(key, merged.has(key) ? mergeRecordPayload(merged.get(key), record) : record);
   });
   state.records = dedupeRecords([...merged.values()]);
+  const restoredKeys = new Set(state.records.flatMap((record) => [recordMatchKey(record), String(record.id || "")].filter(Boolean)));
+  state.clearedRecordKeys = (state.clearedRecordKeys || []).filter((key) => !restoredKeys.has(key));
+  persistClearedRecordKeys();
 }
 
 async function importRecordBundle(file) {
@@ -4438,6 +4477,9 @@ async function runLiveDeduction(id) {
     date: chinaDateKey(match.beijingTime),
     savedAt: new Date().toISOString()
   };
+  const restoredKeys = new Set(autoRecordKeysForMatch(match));
+  state.clearedRecordKeys = (state.clearedRecordKeys || []).filter((key) => !restoredKeys.has(key));
+  persistClearedRecordKeys();
   if (!isDeductionActive(runId)) return;
   persistPredictions();
   scrollModalToBottom();
@@ -4485,6 +4527,7 @@ function bindEvents() {
   });
 
   $("#clearRecords").addEventListener("click", () => {
+    rememberClearedRecords();
     state.records = [];
     persistRecords();
     renderRecords();
